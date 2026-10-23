@@ -93,6 +93,25 @@ object Settings {
         state.value = s
     }
 
+    /** every stored setting, for the backup file */
+    fun raw(): Map<String, Any?> = prefs.all
+
+    /** settings from a backup file; values of the wrong type are ignored */
+    fun restore(values: Map<String, Any?>) {
+        prefs.edit {
+            values.forEach { (k, v) ->
+                when (v) {
+                    is Boolean -> putBoolean(k, v)
+                    is Int -> putInt(k, v)
+                    is Long -> putLong(k, v)
+                    is Float -> putFloat(k, v)
+                    is String -> putString(k, v)
+                }
+            }
+        }
+        state.value = load()
+    }
+
     private inline fun <reified E : Enum<E>> enumOr(name: String?, def: E): E =
         name?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: def
 }

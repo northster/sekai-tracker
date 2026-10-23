@@ -25,6 +25,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +45,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import io.github.northster.sekaitracker.capture.ForegroundApp
 import io.github.northster.sekaitracker.data.AppSettings
 import io.github.northster.sekaitracker.data.CaptureQuality
+import io.github.northster.sekaitracker.data.Backup
 import io.github.northster.sekaitracker.data.Csv
 import io.github.northster.sekaitracker.data.OcrLanguage
 import io.github.northster.sekaitracker.data.OverlayCorner
@@ -67,6 +70,18 @@ fun SettingsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resumeCount++ }
     val usageAccess = remember(resumeCount) { ForegroundApp.hasPermission(context) }
     val songCount = dbState(0) { RecordDb.songCount() }
+
+    val backupSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openOutputStream(uri)!!.use { it.write(Backup.export().toByteArray()) } }.isSuccess
+            }
+            Toast.makeText(context, if (ok) "백업 파일을 만들었어요" else "백업하지 못했어요", Toast.LENGTH_SHORT).show()
+        }
+    }
+    var restoreUri by remember { mutableStateOf<Uri?>(null) }
+    val backupPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> restoreUri = uri }
 
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -135,11 +150,43 @@ fun SettingsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
                 exporter.launch("sekai-records-" + SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()) + ".csv")
             }) { Text("CSV 내보내기") }
             OutlinedButton(onClick = { onOpen(Route.OcrTest) }) { Text("인식 테스트") }
+            OutlinedButton(onClick = {
+                backupSaver.launch("sekai-backup-" + SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) + ".json")
+            }) { Text("백업 파일 만들기") }
+            OutlinedButton(onClick = { backupPicker.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) }) {
+                Text("백업에서 불러오기")
+            }
             OutlinedButton(onClick = { RecordDb.clearSongs() }) { Text("배운 곡 목록 지우기") }
         }
+        Text("백업 파일에는 기록, 배운 곡, 곡 이름 수정, 설정이 들어가요(화면 이미지는 빠져요). 휴대폰을 바꾸거나 앱을 지우기 전에 만들어서 " +
+            "드라이브나 PC에 옮겨 두세요. 불러오면 지금 기록에 더해지고, 이미 있는 판은 건너뛰어요.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("화면 캡처만 사용하고 게임 데이터·메모리는 읽거나 바꾸지 않아요. 글자 인식은 기기 안에서만 하고 인터넷을 쓰지 않아요.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(24.dp))
+    }
+    restoreUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { restoreUri = null },
+            title = { Text("백업에서 불러오기") },
+            text = { Text("기록은 지금 기록에 더해져요. 설정(가중치, 오버레이 등)도 백업 때 값으로 바꿀까요?") },
+            confirmButton = { TextButton(onClick = { restoreUri = null; restore(context, scope, uri, true) }) { Text("설정도 불러오기") } },
+            dismissButton = { TextButton(onClick = { restoreUri = null; restore(context, scope, uri, false) }) { Text("기록만") } },
+        )
+    }
+}
+
+private fun restore(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, uri: Uri, withSettings: Boolean) {
+    scope.launch {
+        val message = withContext(Dispatchers.IO) {
+            runCatching {
+                val json = context.contentResolver.openInputStream(uri)!!.use { it.readBytes().toString(Charsets.UTF_8) }
+                val r = Backup.restore(json, withSettings)
+                "기록 ${r.added}개를 불러왔어요" + (if (r.skipped > 0) " (이미 있던 ${r.skipped}개는 건너뜀)" else "") +
+                    (if (r.settingsRestored) " · 설정도 불러옴" else "")
+            }.getOrElse { (it as? IllegalArgumentException)?.message ?: "불러오지 못했어요: ${it.message}" }
+        }
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     }
 }
 

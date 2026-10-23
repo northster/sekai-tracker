@@ -145,6 +145,45 @@ object RecordDb {
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    /** songs table as stored: title to "EASY=9;NORMAL=15;..." */
+    fun songsRaw(): Map<String, String> = helper.readableDatabase.rawQuery("SELECT title, levels FROM songs", null).use { c ->
+        buildMap { while (c.moveToNext()) put(c.getString(0), c.getString(1).orEmpty()) }
+    }
+
+    data class RestoreCount(val added: Int, val skipped: Int)
+
+    /**
+     * Adds the records, songs and title corrections of a backup in one transaction. Plays already here (same time and same
+     * numbers) are skipped, so restoring the same file twice changes nothing.
+     */
+    fun restore(records: List<PlayRecord>, songs: Map<String, String>, aliases: Map<String, String>): RestoreCount {
+        val db = helper.writableDatabase
+        var added = 0
+        var skipped = 0
+        db.beginTransaction()
+        try {
+            records.forEach { r ->
+                val exists = db.rawQuery("SELECT 1 FROM records WHERE played_at = ? AND signature = ? LIMIT 1",
+                    arrayOf(r.playedAt.toString(), r.signature)).use { it.moveToFirst() }
+                if (exists) skipped++ else { db.insert("records", null, r.copy(id = 0, imagePath = null).values()); added++ }
+            }
+            songs.forEach { (title, levels) ->
+                db.insertWithOnConflict("songs", null, ContentValues().apply {
+                    put("title", title); put("levels", levels); put("updated_at", System.currentTimeMillis())
+                }, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            aliases.forEach { (key, title) ->
+                db.insertWithOnConflict("aliases", null, ContentValues().apply { put("ocr_key", key); put("title", title) },
+                    SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        notifyChanged()
+        return RestoreCount(added, skipped)
+    }
+
     /** rename a song in all records (fixing an OCR mistake after the fact) */
     fun renameChart(oldTitle: String, difficulty: Difficulty?, newTitle: String) {
         helper.writableDatabase.update("records", ContentValues().apply { put("title", newTitle) },
