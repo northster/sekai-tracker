@@ -1,0 +1,84 @@
+name: Build APK
+
+# Every push builds an installable APK. On main it is also published as a release (sekai-N) so it can be downloaded on
+# the phone directly; other branches only upload it as a workflow artifact.
+on:
+  push:
+    paths-ignore: [ '**.md', 'screenshots/**' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests (OCR parsing, accuracy, CSV)
+        run: ./gradlew testReleaseUnitTest --stacktrace
+
+      - name: Optional signing key from secrets
+        env:
+          SEKAI_KEYSTORE_BASE64: ${{ secrets.SEKAI_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$SEKAI_KEYSTORE_BASE64" ]; then
+            echo "$SEKAI_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/sekai.jks"
+            echo "SEKAI_KEYSTORE_FILE=$RUNNER_TEMP/sekai.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build APK
+        env:
+          SEKAI_BUILD_NUMBER: ${{ github.run_number }}
+          SEKAI_KEYSTORE_PASSWORD: ${{ secrets.SEKAI_KEYSTORE_PASSWORD }}
+          SEKAI_KEY_ALIAS: ${{ secrets.SEKAI_KEY_ALIAS }}
+          SEKAI_KEY_PASSWORD: ${{ secrets.SEKAI_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --stacktrace
+          mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/SekaiTracker.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SekaiTracker
+          path: app/build/outputs/apk/release/SekaiTracker.apk
+
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sekai-${{ github.run_number }}
+          name: 세카이 기록 0.1.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            ${{ github.event.head_commit.message }}
+          files: app/build/outputs/apk/release/SekaiTracker.apk
+
+      - name: Keep only the newest 5 releases
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E '^sekai-[0-9]+$' | sort -t- -k2 -n -r | tail -n +6 \
+            | xargs -r -I{} gh release delete {} --yes --cleanup-tag
+
+      - name: Archive reports for failed job
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: '*/build/reports'
+        if: ${{ failure() }}

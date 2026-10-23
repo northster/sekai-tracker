@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">세카이 기록</string>
+    <string name="tile_label">세카이 캡처</string>
+</resources>
