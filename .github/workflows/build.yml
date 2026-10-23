@@ -29,7 +29,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Unit tests (OCR parsing, accuracy, CSV)
-        run: ./gradlew testReleaseUnitTest --stacktrace
+        run: ./gradlew testDebugUnitTest
 
       - name: Optional signing key from secrets
         env:
@@ -47,7 +47,7 @@ jobs:
           SEKAI_KEY_ALIAS: ${{ secrets.SEKAI_KEY_ALIAS }}
           SEKAI_KEY_PASSWORD: ${{ secrets.SEKAI_KEY_PASSWORD }}
         run: |
-          ./gradlew assembleRelease --stacktrace
+          ./gradlew assembleRelease
           mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/SekaiTracker.apk
 
       - name: Upload APK
