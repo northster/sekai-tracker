@@ -79,8 +79,9 @@ fun RecordsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
     }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wide = maxWidth >= 700.dp
+        val listWidth = maxWidth * 0.42f
         Row(Modifier.fillMaxSize()) {
-            Column(Modifier.then(if (wide) Modifier.width(maxWidth * 0.42f) else Modifier.fillMaxWidth()).fillMaxHeight().padding(horizontal = 16.dp)) {
+            Column(Modifier.then(if (wide) Modifier.width(listWidth) else Modifier.fillMaxWidth()).fillMaxHeight().padding(horizontal = 16.dp)) {
                 Spacer(Modifier.height(16.dp))
                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("곡 이름 검색") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
