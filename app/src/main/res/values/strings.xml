@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">세카이 기록</string>
     <string name="tile_label">세카이 캡처</string>
+    <string name="accessibility_summary">프로세카가 켜지면 기록 버튼을 띄우고, 꺼지면 숨겨요</string>
+    <string name="accessibility_description">프로젝트 세카이가 화면에 있는지만 확인해서, 켜지면 기록 버튼을 띄우고 꺼지면 숨겨요. 버튼을 누르면(또는 자동 모드에서) 화면을 한 장 찍어 기기 안에서 글자를 읽어요. 게임 데이터·메모리나 다른 앱의 내용은 읽지 않고, 아무것도 밖으로 보내지 않아요(인터넷 권한 없음).</string>
 </resources>

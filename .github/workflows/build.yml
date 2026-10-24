@@ -1,6 +1,6 @@
 name: Build APK
 
-# Every push builds an installable APK. On main it is also published as a release (sekai-N) so it can be downloaded on
+# Every push builds an installable APK. On main it is also published as a release (v0.1.N) so it can be downloaded on
 # the phone directly; other branches only upload it as a workflow artifact.
 on:
   push:
@@ -60,7 +60,8 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: sekai-${{ github.run_number }}
+          # same as the app's versionName, so Obtainium can compare it with the installed version
+          tag_name: v0.1.${{ github.run_number }}
           name: 세카이 기록 0.1.${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           body: |
@@ -73,7 +74,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release list --limit 100 --json tagName --jq '.[].tagName' \
-            | grep -E '^sekai-[0-9]+$' | sort -t- -k2 -n -r | tail -n +6 \
+            | grep -E '^(sekai-|v0\.1\.)[0-9]+$' \
+            | awk -F'[-.]' '{print $NF" "$0}' | sort -k1,1 -n -r | tail -n +6 | cut -d' ' -f2 \
             | xargs -r -I{} gh release delete {} --yes --cleanup-tag
 
       - name: Archive reports for failed job

@@ -21,7 +21,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +44,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import io.github.northster.sekaitracker.capture.CaptureService
 import io.github.northster.sekaitracker.capture.ResultPipeline
+import io.github.northster.sekaitracker.capture.ScreenReader
+import io.github.northster.sekaitracker.capture.SekaiAccessibilityService
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.RecordDb
 import io.github.northster.sekaitracker.data.Settings
@@ -57,7 +61,9 @@ import kotlinx.coroutines.withContext
 fun HomeScreen(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit, onOpen: (Route) -> Unit) {
     val context = LocalContext.current
     val running by CaptureService.running.collectAsState()
-    val status by CaptureService.status.collectAsState()
+    val status by ScreenReader.status.collectAsState()
+    val connected by SekaiAccessibilityService.connected.collectAsState()
+    val inGame by SekaiAccessibilityService.gameActive.collectAsState()
     val settings by Settings.flow.collectAsState()
     val pending = dbState(emptyList<PlayRecord>()) { RecordDb.pending() }
     val recent = dbState(emptyList<PlayRecord>()) { RecordDb.saved().take(20) }
@@ -99,26 +105,52 @@ fun HomeScreen(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit, onOp
         item {
             Text("세카이 기록", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 16.dp))
         }
-        item {
+        if (connected) item {
             Card(colors = CardDefaults.cardColors(
-                containerColor = if (running) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
+                containerColor = if (inGame && settings.autoStart) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(Modifier.padding(16.dp).fillMaxWidth()) {
-                    Text(if (running) "인식 중" else "꺼져 있음", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            when { !settings.autoStart -> "자동 실행 꺼짐"; inGame -> "게임 실행 중"; else -> "게임을 기다리는 중" },
+                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
+                        )
+                        Switch(settings.autoStart, { v -> Settings.update { it.copy(autoStart = v) } })
+                    }
                     Text(
-                        if (!running) "시작하면 게임 위에 작은 버튼이 떠요. 결과 화면에서 누르면 기록하고, 곡 선택 화면에서 누르면 이전 최고 기록을 보여줘요. 화면 캡처만 쓰고 게임 데이터는 건드리지 않아요."
-                        else if (settings.autoDetect) "자동: ${settings.intervalMs / 1000}초마다 화면을 확인 · $status"
-                        else "버튼을 누를 때만 화면을 읽어요 · $status",
+                        "프로세카가 켜지면 " + (if (settings.autoDetect) "결과 화면을 자동으로 찾고" else "기록 버튼이 뜨고") +
+                            ", 꺼지면 멈춰요. 화면 공유 허용은 필요 없어요.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Spacer(Modifier.padding(4.dp))
-                    if (running) OutlinedButton(onClick = onStop) { Text("중지") } else Button(onClick = onStart) { Text("시작") }
+                    Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        } else item {
+            Card {
+                Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("자동 실행 켜기", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        "접근성에서 '세카이 기록'을 켜면 프로세카를 켤 때 자동으로 시작하고 끄면 멈춰요. 매번 화면 공유를 허용할 필요도 없어요. " +
+                            "어떤 앱이 앞에 있는지와 버튼을 눌렀을 때의 화면 사진만 써요.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = { context.startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) }) { Text("접근성 설정 열기") }
+                    Text(
+                        "설치된 앱 > 세카이 기록 > 켜기. 회색으로 막혀 있으면 설정 > 애플리케이션 > 세카이 기록 > 오른쪽 위 ⋮ > '제한된 설정 허용' 후 다시 켜세요.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                    Text(
+                        if (running) "화면 공유로 실행 중 · $status" else "또는 지금만 화면 공유로 시작 (게임을 끄고 켜도 자동으로 따라가지 않아요)",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (running) OutlinedButton(onClick = onStop) { Text("화면 공유 중지") } else OutlinedButton(onClick = onStart) { Text("화면 공유로 시작") }
                 }
             }
         }
-        if (!canOverlay) item {
+        if (!connected && !canOverlay) item {
             Card {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("결과 오버레이를 보려면 '다른 앱 위에 표시' 권한이 필요해요", Modifier.weight(1f))
+                    Text("화면 공유 방식에서 버튼과 결과 창을 띄우려면 '다른 앱 위에 표시' 권한이 필요해요", Modifier.weight(1f))
                     TextButton(onClick = {
                         context.startActivity(Intent(AndroidSettings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
                     }) { Text("허용") }

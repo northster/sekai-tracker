@@ -23,6 +23,8 @@ enum class CaptureQuality(val label: String, val longSide: Int) {
 
 data class AppSettings(
     val weights: Weights = Weights(),
+    /** with the accessibility service: show the button / start auto mode whenever the game is in front */
+    val autoStart: Boolean = true,
     /** false: only the floating button, tile or notification reads the screen (no periodic capture at all) */
     val autoDetect: Boolean = false,
     /** small floating button that reads the screen when tapped */
@@ -67,6 +69,7 @@ object Settings {
         return AppSettings(
             weights = Weights(dbl("w_perfect", d.weights.perfect), dbl("w_great", d.weights.great), dbl("w_good", d.weights.good),
                 dbl("w_bad", d.weights.bad), dbl("w_miss", d.weights.miss)),
+            autoStart = prefs.getBoolean("auto_start", d.autoStart),
             autoDetect = prefs.getBoolean("auto_mode", d.autoDetect),
             showButton = prefs.getBoolean("show_button", d.showButton),
             buttonX = prefs.getInt("button_x", d.buttonX),
@@ -92,7 +95,7 @@ object Settings {
         prefs.edit {
             putFloat("w_perfect", s.weights.perfect.toFloat()); putFloat("w_great", s.weights.great.toFloat())
             putFloat("w_good", s.weights.good.toFloat()); putFloat("w_bad", s.weights.bad.toFloat()); putFloat("w_miss", s.weights.miss.toFloat())
-            putBoolean("auto_mode", s.autoDetect); putBoolean("show_button", s.showButton)
+            putBoolean("auto_start", s.autoStart); putBoolean("auto_mode", s.autoDetect); putBoolean("show_button", s.showButton)
             putInt("button_x", s.buttonX); putInt("button_y", s.buttonY)
             putLong("interval_ms", s.intervalMs); putString("quality", s.quality.name)
             putBoolean("pause_mirroring", s.pauseMirroring); putBoolean("only_in_game", s.onlyInGame)

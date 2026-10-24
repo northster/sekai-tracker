@@ -9,9 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
@@ -31,10 +29,7 @@ import androidx.core.content.IntentCompat
 import io.github.northster.sekaitracker.R
 import io.github.northster.sekaitracker.SekaiApp
 import io.github.northster.sekaitracker.data.Settings
-import io.github.northster.sekaitracker.data.Source
 import io.github.northster.sekaitracker.ocr.Recognizer
-import io.github.northster.sekaitracker.ocr.ResultParser
-import io.github.northster.sekaitracker.ocr.ScreenKind
 import io.github.northster.sekaitracker.overlay.CaptureButton
 import io.github.northster.sekaitracker.overlay.ResultOverlay
 import io.github.northster.sekaitracker.ui.MainActivity
@@ -48,11 +43,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -67,7 +57,6 @@ class CaptureService : Service() {
     private lateinit var thread: HandlerThread
     private lateinit var handler: Handler
     private lateinit var scope: CoroutineScope
-    private val tickLock = Mutex()
 
     private var projection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -81,14 +70,11 @@ class CaptureService : Service() {
     private var frame: Bitmap? = null
     private var screenOn = true
     private var loopJob: Job? = null
-    private val gate = FrameGate()
-    /** song whose best records were shown last, so auto mode does not show them again for the same song */
-    private var lastShownSong: String? = null
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             screenOn = intent.action != Intent.ACTION_SCREEN_OFF
-            if (!screenOn) handler.post { detachSurface(); gate.reset() }
+            if (!screenOn) handler.post { detachSurface(); ScreenReader.reset() }
         }
     }
 
@@ -151,11 +137,13 @@ class CaptureService : Service() {
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, if (keepAttached) r.surface else null, null, handler)
         surfaceAttached = keepAttached
         runningState.value = true
-        status.value = "실행 중"
+        ScreenReader.status.value = "화면 공유로 실행 중"
         TileService.requestListeningState(this, ComponentName(this, CaptureTileService::class.java))
         scope.launch {
             Settings.flow.collect { s ->
-                if (s.showButton) CaptureButton.show(this@CaptureService) { requestCapture(0) } else CaptureButton.remove()
+                // with the accessibility service on, it owns the button
+                if (s.showButton && SekaiAccessibilityService.instance == null) CaptureButton.show(this@CaptureService) { requestCapture(0) }
+                else if (SekaiAccessibilityService.instance == null) CaptureButton.remove()
                 // switched to button mode while running: stop mirroring
                 if (!s.autoDetect && keepAttached) { keepAttached = false; detachSurface() }
             }
@@ -170,29 +158,24 @@ class CaptureService : Service() {
                     val pkg = ForegroundApp.current(this@CaptureService)
                     if (pkg != null && pkg !in s.gamePackages) {
                         CaptureButton.hide("game")
-                        if (s.autoDetect) { detachSurface(); gate.reset() }
+                        if (s.autoDetect) { detachSurface(); ScreenReader.reset() }
                         continue
                     }
                     CaptureButton.unhide("game")
                 }
-                if (s.autoDetect) tick(force = false)
+                if (s.autoDetect) ScreenReader.readIfNew(this@CaptureService) { grabFrame(800) }
             }
         }
     }
 
-    /** read the screen once now (button, tile, notification); the button and the last overlay are hidden for the frame */
+    /** read the screen once now (button, tile, notification) */
     private fun requestCapture(delayMs: Long) {
-        scope.launch {
-            ResultOverlay.hideAsync()
-            CaptureButton.hide("capture")
-            delay(maxOf(delayMs, 150))
-            try {
-                tick(force = true) { CaptureButton.unhide("capture") }
-            } finally {
-                CaptureButton.unhide("capture")
-            }
-        }
+        scope.launch { ScreenReader.captureOnce(this@CaptureService, delayMs) { grabFrame(1500) } }
     }
+
+    /** one frame as the shared reader wants it; the bitmap is reused for the next frame, so it is not recycled */
+    private suspend fun grabFrame(waitMs: Long): ScreenReader.Frame? =
+        grabBitmap(waitMs)?.let { ScreenReader.Frame(it, width, height, recycleAfter = false) }
 
     private fun screenSize(): Pair<Int, Int> {
         val display = getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
@@ -221,7 +204,7 @@ class CaptureService : Service() {
         vd.surface = if (surfaceAttached) r.surface else null
         old?.close()
         frame = null
-        gate.reset()
+        ScreenReader.reset()
     }
 
     private fun detachSurface() {
@@ -232,7 +215,7 @@ class CaptureService : Service() {
     }
 
     /** one frame from the screen, or null */
-    private suspend fun grabFrame(waitMs: Long): Bitmap? {
+    private suspend fun grabBitmap(waitMs: Long): Bitmap? {
         val r = reader ?: return null
         val image = if (keepAttached) {
             // mirroring all the time: no new image means the screen did not change
@@ -269,84 +252,22 @@ class CaptureService : Service() {
         return frame
     }
 
-    private suspend fun tick(force: Boolean, afterGrab: () -> Unit = {}) { tickLock.withLock { tickLocked(force, afterGrab) } }
-
-    private suspend fun tickLocked(force: Boolean, afterGrab: () -> Unit) {
-        val grabbed = runCatching { grabFrame(if (force) 1500 else 800) }.getOrNull()
-        afterGrab()
-        val bmp = grabbed ?: run {
-            if (force) ResultOverlay.showMessage(this, "화면을 가져오지 못했어요")
-            return
-        }
-        val content = contentRect(bmp, width.coerceAtMost(bmp.width), height.coerceAtMost(bmp.height))
-        val thumb = thumbnail(bmp, content)
-        val decision = gate.offer(thumb)
-        if (gate.leftCheckedScreen && ResultOverlay.isShowing) ResultOverlay.hideAsync()
-        if (!force && decision == FrameGate.Decision.SKIP) return
-        if (force) gate.markChecked(thumb)
-
-        val crop = Bitmap.createBitmap(bmp, content.left, content.top, content.width(), content.height())
-        try {
-            val boxes = runCatching { Recognizer.read(crop, Settings.current.ocrLanguage) }.getOrElse {
-                status.value = "${time()} OCR 실패: ${it.message}"
-                return
-            }
-            when (ResultParser.classify(boxes)) {
-                ScreenKind.RESULT -> {
-                    val parsed = ResultParser.parseResult(boxes, crop.height)
-                    val outcome = ResultPipeline.handle(this, parsed, crop, if (force) Source.BUTTON else Source.AUTO)
-                    status.value = "${time()} 결과 화면: " + when (outcome) {
-                        is ResultPipeline.Outcome.Saved -> "저장함 (${outcome.record.title})"
-                        is ResultPipeline.Outcome.NeedsReview -> "확인 필요 (${outcome.record.title.ifBlank { "?" }})"
-                        is ResultPipeline.Outcome.Duplicate -> "이미 저장됨"
-                    }
-                }
-                ScreenKind.SONG_SELECT -> {
-                    val title = ResultParser.parseSongSelect(boxes, crop.height)?.let { ResultPipeline.onSongSelect(it) }
-                    status.value = "${time()} 곡 선택 화면" + (title?.let { ": $it" } ?: "")
-                    if (title == null) {
-                        if (force) ResultOverlay.showMessage(this, "곡 이름을 읽지 못했어요")
-                    } else if (force || title != lastShownSong) {
-                        lastShownSong = title
-                        ResultOverlay.showSongBest(this, title, ResultPipeline.charts(title))
-                    }
-                }
-                ScreenKind.LIVE_PREPARE -> {
-                    val difficulty = ResultParser.parseLivePrepare(boxes)
-                    val title = ResultPipeline.selectedSong()
-                    status.value = "${time()} 라이브 준비 화면"
-                    if (difficulty != null && title != null) {
-                        ResultOverlay.showChartBest(this, title, difficulty, ResultPipeline.charts(title).firstOrNull { it.difficulty == difficulty })
-                    } else if (force) {
-                        ResultOverlay.showMessage(this, "곡 선택 화면에서 먼저 한 번 눌러 주세요")
-                    }
-                }
-                ScreenKind.OTHER -> {
-                    status.value = "${time()} 결과 화면 아님"
-                    if (force) ResultOverlay.showMessage(this, "결과·곡 선택 화면이 아니에요")
-                }
-            }
-        } finally {
-            crop.recycle()
-        }
-    }
-
     override fun onDestroy() {
         runningState.value = false
-        status.value = "꺼짐"
+        if (SekaiAccessibilityService.instance == null) ScreenReader.status.value = "꺼짐"
         loopJob?.cancel()
         scope.cancel()
         handler.post {
             virtualDisplay?.release(); virtualDisplay = null
             reader?.close(); reader = null
             projection?.stop(); projection = null
-            Recognizer.release()
+            if (SekaiAccessibilityService.instance == null) Recognizer.release()
             thread.quitSafely()
         }
         runCatching { unregisterReceiver(screenReceiver) }
         getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener)
         ResultOverlay.hideAsync()
-        CaptureButton.remove()
+        if (SekaiAccessibilityService.instance == null) CaptureButton.remove()
         TileService.requestListeningState(this, ComponentName(this, CaptureTileService::class.java))
         super.onDestroy()
     }
@@ -374,36 +295,5 @@ class CaptureService : Service() {
 
         private val runningState = MutableStateFlow(false)
         val running: StateFlow<Boolean> get() = runningState
-        /** last thing the service saw, shown in the app */
-        val status = MutableStateFlow("꺼짐")
-
-        private fun time() = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
-
-        /** area without black letterbox bars, so positions are relative to the game picture */
-        fun contentRect(bmp: Bitmap, w: Int, h: Int): Rect {
-            fun dark(x: Int, y: Int): Boolean {
-                val c = bmp.getPixel(x, y)
-                return Color.red(c) < 12 && Color.green(c) < 12 && Color.blue(c) < 12
-            }
-            fun rowDark(y: Int) = (0 until 24).all { dark((it * (w - 1)) / 23, y) }
-            fun colDark(x: Int) = (0 until 24).all { dark(x, (it * (h - 1)) / 23) }
-            var top = 0; while (top < h / 3 && rowDark(top)) top += 2
-            var bottom = h - 1; while (bottom > h * 2 / 3 && rowDark(bottom)) bottom -= 2
-            var left = 0; while (left < w / 3 && colDark(left)) left += 2
-            var right = w - 1; while (right > w * 2 / 3 && colDark(right)) right -= 2
-            return Rect(left, top, right + 1, bottom + 1)
-        }
-
-        /** gray 32x20 of the left middle of the picture, where the result numbers are */
-        fun thumbnail(bmp: Bitmap, r: Rect): IntArray {
-            val out = IntArray(FrameGate.THUMB_W * FrameGate.THUMB_H)
-            for (ty in 0 until FrameGate.THUMB_H) for (tx in 0 until FrameGate.THUMB_W) {
-                val x = r.left + ((0.02f + 0.53f * tx / (FrameGate.THUMB_W - 1)) * r.width()).toInt()
-                val y = r.top + ((0.25f + 0.6f * ty / (FrameGate.THUMB_H - 1)) * r.height()).toInt()
-                val c = bmp.getPixel(x.coerceIn(0, bmp.width - 1), y.coerceIn(0, bmp.height - 1))
-                out[ty * FrameGate.THUMB_W + tx] = (Color.red(c) * 299 + Color.green(c) * 587 + Color.blue(c) * 114) / 1000
-            }
-            return out
-        }
     }
 }

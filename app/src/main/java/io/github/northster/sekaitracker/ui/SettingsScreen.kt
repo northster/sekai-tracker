@@ -22,12 +22,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import io.github.northster.sekaitracker.capture.ForegroundApp
+import io.github.northster.sekaitracker.capture.SekaiAccessibilityService
 import io.github.northster.sekaitracker.data.AppSettings
 import io.github.northster.sekaitracker.data.CaptureQuality
 import io.github.northster.sekaitracker.data.Backup
@@ -102,6 +105,9 @@ fun SettingsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
         WeightsEditor(s.weights) { w -> Settings.update { it.copy(weights = w) } }
 
         Section("화면 인식")
+        Toggle("게임 켜지면 자동 실행", "접근성 서비스가 켜져 있을 때: 프로세카가 화면에 있으면 버튼을 띄우거나 자동 확인을 하고, 꺼지면 멈춰요", s.autoStart) { v ->
+            Settings.update { it.copy(autoStart = v) }
+        }
         Text("읽는 방식", style = MaterialTheme.typography.bodyMedium)
         Choices(listOf(false, true), s.autoDetect, { if (it) "자동 (일정 간격으로 확인)" else "버튼 (누를 때만, 배터리 절약)" }) { v ->
             Settings.update { it.copy(autoDetect = v) }
@@ -126,23 +132,31 @@ fun SettingsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
         Text("인식 언어", style = MaterialTheme.typography.bodyMedium)
         Choices(OcrLanguage.entries, s.ocrLanguage, { it.label }) { v -> Settings.update { it.copy(ocrLanguage = v) } }
 
-        Toggle("게임 중에만 버튼 표시·확인", "다른 앱을 쓸 때는 버튼을 숨기고 화면을 보지 않아요. '사용 정보 접근' 권한이 필요해요", s.onlyInGame) { v ->
+        Section("게임 앱")
+        Text("이 앱이 화면에 있으면 프로세카로 봐요. 자동 실행이 안 되면 프로세카를 한 번 켰다가 와서 아래 '최근 앱'에서 눌러 추가하세요.",
+            style = MaterialTheme.typography.bodySmall)
+        var packages by remember { mutableStateOf(s.gamePackages.joinToString("\n")) }
+        // added from a chip or reset: show it in the field (typing keeps its own text, line breaks included)
+        LaunchedEffect(s.gamePackages) {
+            if (packages.split('\n', ',').map(String::trim).filter(String::isNotEmpty) != s.gamePackages) packages = s.gamePackages.joinToString("\n")
+        }
+        OutlinedTextField(packages, { packages = it; Settings.update { st -> st.copy(gamePackages = it.split('\n', ',').map(String::trim).filter(String::isNotEmpty)) } },
+            Modifier.fillMaxWidth(), label = { Text("게임 패키지 이름 (한 줄에 하나)") })
+        val recent by SekaiAccessibilityService.recentPackages.collectAsState()
+        val addable = recent.filter { it !in s.gamePackages }
+        if (addable.isNotEmpty()) {
+            Text("최근 앱 (눌러서 추가)", style = MaterialTheme.typography.bodySmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                addable.forEach { pkg -> SuggestionChip(onClick = { Settings.update { it.copy(gamePackages = it.gamePackages + pkg) } }, label = { Text(pkg) }) }
+            }
+        }
+        TextButton(onClick = { Settings.update { it.copy(gamePackages = AppSettings.DEFAULT_GAME_PACKAGES) } }) { Text("기본값으로") }
+        Toggle("화면 공유 방식: 게임 중에만 버튼 표시·확인", "접근성 서비스 없이 화면 공유로 쓸 때만 해당돼요. '사용 정보 접근' 권한이 필요해요", s.onlyInGame) { v ->
             Settings.update { it.copy(onlyInGame = v) }
             if (v && !usageAccess) context.startActivity(Intent(AndroidSettings.ACTION_USAGE_ACCESS_SETTINGS))
         }
-        if (s.onlyInGame) {
-            if (!usageAccess) TextButton(onClick = { context.startActivity(Intent(AndroidSettings.ACTION_USAGE_ACCESS_SETTINGS)) }) {
-                Text("사용 정보 접근 권한 허용하기")
-            }
-            var packages by remember { mutableStateOf(s.gamePackages.joinToString("\n")) }
-            OutlinedTextField(packages, { packages = it; Settings.update { st -> st.copy(gamePackages = it.split('\n', ',').map(String::trim).filter(String::isNotEmpty)) } },
-                Modifier.fillMaxWidth(), label = { Text("게임 패키지 이름 (한 줄에 하나)") })
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("마지막으로 본 앱: ${ForegroundApp.lastPackage ?: "-"}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                TextButton(onClick = { packages = AppSettings.DEFAULT_GAME_PACKAGES.joinToString("\n"); Settings.update { it.copy(gamePackages = AppSettings.DEFAULT_GAME_PACKAGES) } }) {
-                    Text("기본값")
-                }
-            }
+        if (s.onlyInGame && !usageAccess) TextButton(onClick = { context.startActivity(Intent(AndroidSettings.ACTION_USAGE_ACCESS_SETTINGS)) }) {
+            Text("사용 정보 접근 권한 허용하기")
         }
 
         Section("오버레이")

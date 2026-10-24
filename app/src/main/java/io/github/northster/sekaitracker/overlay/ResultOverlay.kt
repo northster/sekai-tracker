@@ -7,7 +7,6 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings as AndroidSettings
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -74,11 +73,12 @@ object ResultOverlay {
 
     private fun show(context: Context, lines: List<String>, highlight: Boolean, seconds: Int = Settings.current.overlaySeconds, boldLine: Int = 1) {
         val settings = Settings.current
-        if (!settings.overlayEnabled || !AndroidSettings.canDrawOverlays(context)) return
-        val app = context.applicationContext
+        if (!settings.overlayEnabled) return
         main.post {
             hide()
-            val wm = app.getSystemService(WindowManager::class.java)
+            val host = OverlayWindows.host(context) ?: return@post
+            val app = host.context
+            val wm = host.windowManager
             val dp = { v: Float -> TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, app.resources.displayMetrics) }
             val box = LinearLayout(app).apply {
                 orientation = LinearLayout.VERTICAL
@@ -100,7 +100,7 @@ object ResultOverlay {
             }
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                host.type,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT,

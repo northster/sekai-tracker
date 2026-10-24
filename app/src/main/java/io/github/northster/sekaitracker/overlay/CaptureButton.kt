@@ -7,7 +7,6 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings as AndroidSettings
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -33,10 +32,11 @@ object CaptureButton {
     private val hiddenFor = mutableSetOf<String>()
 
     fun show(context: Context, onTap: () -> Unit) {
-        val app = context.applicationContext
         main.post {
-            if (view != null || !AndroidSettings.canDrawOverlays(app)) return@post
-            val wm = app.getSystemService(WindowManager::class.java)
+            if (view != null) return@post
+            val host = OverlayWindows.host(context) ?: return@post
+            val app = host.context
+            val wm = host.windowManager
             val dp = { v: Float -> TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, app.resources.displayMetrics).toInt() }
             val size = dp(44f)
             val button = FrameLayout(app).apply {
@@ -54,7 +54,7 @@ object CaptureButton {
             val bounds = wm.currentWindowMetrics.bounds
             val s = Settings.current
             val p = WindowManager.LayoutParams(
-                size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                size, size, host.type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT,
             ).apply {
