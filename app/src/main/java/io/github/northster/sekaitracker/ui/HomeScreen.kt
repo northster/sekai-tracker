@@ -87,7 +87,7 @@ fun HomeScreen(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit, onOp
                         ResultParser.parseSongSelect(boxes, bmp.height)?.let { withContext(Dispatchers.IO) { ResultPipeline.onSongSelect(it) } }
                         "곡 선택 화면에서 곡 정보를 읽었어요"
                     }
-                    ScreenKind.OTHER -> "결과 화면을 찾지 못했어요"
+                    ScreenKind.LIVE_PREPARE, ScreenKind.OTHER -> "결과 화면을 찾지 못했어요"
                 }
             }.getOrElse { "읽지 못했어요: ${it.message}" }
             importing = false

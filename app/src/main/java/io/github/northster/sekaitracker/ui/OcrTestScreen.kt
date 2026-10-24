@@ -129,7 +129,7 @@ fun OcrTestScreen(onBack: () -> Unit) {
     }
 }
 
-private fun kindLabel(k: ScreenKind) = when (k) { ScreenKind.RESULT -> "결과"; ScreenKind.SONG_SELECT -> "곡 선택"; ScreenKind.OTHER -> "기타" }
+private fun kindLabel(k: ScreenKind) = when (k) { ScreenKind.RESULT -> "결과"; ScreenKind.SONG_SELECT -> "곡 선택"; ScreenKind.LIVE_PREPARE -> "라이브 준비"; ScreenKind.OTHER -> "기타" }
 
 /** values on screenshots/result.jpg */
 private val SAMPLE = mapOf(
