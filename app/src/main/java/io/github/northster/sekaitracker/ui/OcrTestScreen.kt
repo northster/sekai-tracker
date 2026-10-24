@@ -75,7 +75,7 @@ fun OcrTestScreen(onBack: () -> Unit) {
                     val p = ResultParser.parseResult(boxes, bmp.height)
                     val got = linkedMapOf(
                         "곡" to p.title, "난이도" to (p.difficulty?.label ?: "-"), "레벨" to (p.level?.toString() ?: "-"),
-                        "점수" to (p.score?.toString() ?: "-"), "하이스코어" to (p.highScore?.toString() ?: "-"), "콤보" to (p.combo?.toString() ?: "-"),
+                        "콤보" to (p.combo?.toString() ?: "-"),
                         "PERFECT" to (p.perfect?.toString() ?: "-"), "GREAT" to (p.great?.toString() ?: "-"), "GOOD" to (p.good?.toString() ?: "-"),
                         "BAD" to (p.bad?.toString() ?: "-"), "MISS" to (p.miss?.toString() ?: "-"),
                         "FAST" to (p.fast?.toString() ?: "-"), "LATE" to (p.late?.toString() ?: "-"),
@@ -133,7 +133,7 @@ private fun kindLabel(k: ScreenKind) = when (k) { ScreenKind.RESULT -> "결과";
 
 /** values on screenshots/result.jpg */
 private val SAMPLE = mapOf(
-    "곡" to "ももいろの鍵", "난이도" to Difficulty.MASTER.label, "레벨" to "31", "점수" to "1123121", "하이스코어" to "1505482",
+    "곡" to "ももいろの鍵", "난이도" to Difficulty.MASTER.label, "레벨" to "31",
     "콤보" to "1187", "PERFECT" to "1166", "GREAT" to "21", "GOOD" to "0", "BAD" to "0", "MISS" to "0",
     "FAST" to "17", "LATE" to "4", "풀콤보" to "true", "올퍼펙트" to "false",
 )

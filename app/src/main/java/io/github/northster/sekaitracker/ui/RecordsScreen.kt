@@ -149,7 +149,6 @@ fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit,
     val settings by Settings.flow.collectAsState()
     val records = dbState(emptyList<PlayRecord>(), title, difficulty) { RecordDb.forChart(title, difficulty) }
     val stats = remember(records, settings.weights) { Stats.forChart(records, settings.weights) }
-    var showScore by rememberSaveable { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
 
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -167,16 +166,12 @@ fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit,
                 StatBox("최근 추이", stats.recentTrend?.let { trend(it) + "%p" } ?: "-")
                 StatBox("플레이", "${stats.plays}회")
             }
-            Text("최고 점수 ${stats.bestScore ?: "-"}" + (if (stats.allPerfect) " · ALL PERFECT" else if (stats.fullCombo) " · FULL COMBO" else ""),
-                style = MaterialTheme.typography.bodyMedium)
+            if (stats.allPerfect || stats.fullCombo)
+                Text(if (stats.allPerfect) "ALL PERFECT 달성" else "FULL COMBO 달성", style = MaterialTheme.typography.bodyMedium)
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = !showScore, onClick = { showScore = false }, label = { Text("정확도") })
-                FilterChip(selected = showScore, onClick = { showScore = true }, label = { Text("점수") })
-            }
-            val values = records.map { if (showScore) it.score?.toDouble() else settings.weights.accuracy(it.judgments) }
-            LineChart(values, Modifier.fillMaxWidth().height(200.dp), percent = !showScore)
+            Text("정확도 추이", style = MaterialTheme.typography.titleSmall)
+            LineChart(records.map { settings.weights.accuracy(it.judgments) }, Modifier.fillMaxWidth().height(200.dp), percent = true)
         }
         item { Text("플레이 기록 (눌러서 수정)", style = MaterialTheme.typography.titleSmall) }
         items(records.reversed(), key = { it.id }) { r -> RecordRow(r, Modifier.clickable { onEdit(r.id) }) }

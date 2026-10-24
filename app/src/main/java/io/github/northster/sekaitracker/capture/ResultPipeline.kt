@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import io.github.northster.sekaitracker.R
 import io.github.northster.sekaitracker.SekaiApp
+import io.github.northster.sekaitracker.data.ChartStats
 import io.github.northster.sekaitracker.data.Judgments
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.RecordDb
@@ -36,17 +37,27 @@ object ResultPipeline {
     @Volatile private var lastSelected: Pair<String, Long>? = null
     private const val SELECTION_VALID_MS = 20 * 60_000L
 
-    fun onSongSelect(parsed: ParsedSongSelect) {
-        if (parsed.title.isBlank()) return
+    /** remembers the selected song and returns its title as it is stored (null when no title was read) */
+    fun onSongSelect(parsed: ParsedSongSelect): String? {
+        if (parsed.title.isBlank()) return null
         val match = TitleMatcher.match(parsed.title, RecordDb.titles(), RecordDb.aliases(), threshold = 0.85)
         val title = if (match.known) match.title else parsed.title
         if (parsed.levels.size >= 4) RecordDb.saveSong(title, parsed.levels)
         lastSelected = title to System.currentTimeMillis()
+        return title
     }
+
+    /** song selected on the song select screen in the last minutes */
+    fun selectedSong(now: Long = System.currentTimeMillis()): String? = lastSelected?.takeIf { now - it.second < SELECTION_VALID_MS }?.first
+
+    /** best per difficulty of one song, easiest first */
+    fun charts(title: String): List<ChartStats> = RecordDb.forTitle(title).groupBy { it.difficulty }.values
+        .mapNotNull { Stats.forChart(it, Settings.current.weights) }
+        .sortedBy { it.difficulty?.ordinal ?: Int.MAX_VALUE }
 
     /** builds the record from OCR, without saving it */
     fun toRecord(parsed: ParsedResult, source: Source, now: Long = System.currentTimeMillis()): PlayRecord {
-        val selected = lastSelected?.takeIf { now - it.second < SELECTION_VALID_MS }?.first
+        val selected = selectedSong(now)
         val match = TitleMatcher.match(parsed.title, RecordDb.titles(), RecordDb.aliases(), selected)
         val issues = parsed.issues.toMutableList()
         if (!match.known && match.title.isNotBlank() && Settings.current.reviewNewSongs) issues += "처음 보는 곡 이름: 맞는지 확인"
@@ -56,8 +67,8 @@ object ResultPipeline {
             title = match.title,
             difficulty = parsed.difficulty,
             level = level,
-            score = parsed.score,
-            highScore = parsed.highScore,
+            score = null,
+            highScore = null,
             combo = parsed.combo,
             judgments = parsed.judgments ?: Judgments(parsed.perfect ?: 0, parsed.great ?: 0, parsed.good ?: 0, parsed.bad ?: 0, parsed.miss ?: 0),
             fast = parsed.fast,

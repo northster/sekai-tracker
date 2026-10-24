@@ -4,14 +4,12 @@ import io.github.northster.sekaitracker.data.Difficulty
 import io.github.northster.sekaitracker.data.Judgments
 import kotlin.math.abs
 
-enum class ScreenKind { RESULT, SONG_SELECT, OTHER }
+enum class ScreenKind { RESULT, SONG_SELECT, LIVE_PREPARE, OTHER }
 
 data class ParsedResult(
     val title: String,
     val difficulty: Difficulty?,
     val level: Int?,
-    val score: Long?,
-    val highScore: Long?,
     val combo: Int?,
     val perfect: Int?, val great: Int?, val good: Int?, val bad: Int?, val miss: Int?,
     val fast: Int?,
@@ -37,21 +35,22 @@ data class ParsedSongSelect(val title: String, val levels: Map<Difficulty, Int>)
  * The values are found next to their labels instead of at fixed coordinates, so the same code works on the Fold's inner
  * and cover screens and with letterboxing. Layout of the result screen (see screenshots/result.jpg):
  * - top left: song title, below it the difficulty badge (MASTER ...) and "楽曲Lv.31"
- * - "スコア" + big score, "ハイスコア" + high score below
+ * - "スコア" / "ハイスコア" with the scores (not read: accuracy comes from the judgment counts)
  * - left column: PERFECT / GREAT / GOOD / BAD / MISS with their counts on the right
  * - middle: "FULL COMBO" / "ALL PERFECT" banner, "COMBO 1187", LATE / FAST labels with counts below, FLICK
  */
 object ResultParser {
     private val judgmentLabels = listOf("PERFECT", "GREAT", "GOOD", "BAD", "MISS")
     private val levelRegex = Regex("""[Ll][VvＶｖ][.．。,]?\s*([0-9OoIl]{1,2})""")
-    private val highScoreLabel = Regex("""ハイスコア|하이\s*스코어|HIGH\s*SCORE|HI-?SCORE""", RegexOption.IGNORE_CASE)
-    private val scoreLabel = Regex("""スコア|스코어|SCORE""", RegexOption.IGNORE_CASE)
+    private val livePrepareText = Regex("""総合力|総合|종합력|おすすめ編成|추천\s*편성""")
 
     fun classify(boxes: List<OcrBox>): ScreenKind {
         val judgments = judgmentLabels.count { label -> boxes.any { isJudgmentLabel(it, label) } }
         if (judgments >= 4) return ScreenKind.RESULT
         val difficulties = Difficulty.entries.count { d -> boxes.any { TextNorm.matchesLabel(it.text, d.label) } }
         if (difficulties >= 4) return ScreenKind.SONG_SELECT
+        // live prepare (screenshots/live_prepare.jpg): one difficulty badge next to the team, the AUTO switch below
+        if (difficulties == 1 && boxes.any { TextNorm.letters(it.text) == "AUTO" || livePrepareText.containsMatchIn(it.text) }) return ScreenKind.LIVE_PREPARE
         return ScreenKind.OTHER
     }
 
@@ -72,8 +71,7 @@ object ResultParser {
     private fun isNumeric(box: OcrBox) = TextNorm.parseNumber(box.text) != null
 
     /**
-     * Joins number pieces written next to each other on one row: the score's grey leading zero is often read as a separate
-     * box ("0" + "1123121").
+     * Joins number pieces written next to each other on one row (a count split in two boxes, "00" + "21").
      */
     internal fun mergeNumberPieces(boxes: List<OcrBox>): List<OcrBox> {
         val numbers = boxes.filter(::isNumeric).sortedBy { it.left }.toMutableList()
@@ -135,17 +133,6 @@ object ResultParser {
         val title = diffBox?.let { findTitle(it, boxes) }.orEmpty()
         if (title.isBlank()) issues += "곡 이름을 읽지 못함"
 
-        // score: number on the score label's row, otherwise the tallest long number (it is drawn much bigger)
-        val bigNumbers = numbers.filter { (TextNorm.parseNumber(it.text) ?: 0) >= 10_000 && it.text.count { c -> c.isLetterOrDigit() } >= 6 }
-        val highLabel = boxes.firstOrNull { highScoreLabel.containsMatchIn(it.text) }
-        val scoreLabelBox = boxes.firstOrNull { scoreLabel.containsMatchIn(it.text) && !highScoreLabel.containsMatchIn(it.text) && it !== highLabel }
-        val scoreBox = scoreLabelBox?.let { l -> bigNumbers.filter { it.sameRow(l) && it.left > l.left }.minByOrNull { it.left } }
-            ?: bigNumbers.maxByOrNull { it.height }
-        val highBox = highLabel?.let { l -> bigNumbers.filter { it !== scoreBox && it.sameRow(l) }.minByOrNull { abs(it.cy - l.cy) } }
-            ?: scoreBox?.let { s -> bigNumbers.filter { it !== s && it.top > s.cy }.minByOrNull { it.top } }
-        val score = scoreBox?.let { TextNorm.parseNumber(it.text) }
-        val highScore = highBox?.let { TextNorm.parseNumber(it.text) }
-        if (score == null) issues += "점수를 읽지 못함"
 
         val comboLabel = boxes.firstOrNull { TextNorm.labelLetters(it.text) == "COMBO" || TextNorm.matchesLabel(it.text, "COMBO") }
         val combo = comboLabel?.let { numberRightOf(it, boxes) }?.toInt()
@@ -179,7 +166,7 @@ object ResultParser {
         if (combo == null) notes += "콤보를 읽지 못함"
 
         return ParsedResult(
-            title = title, difficulty = difficulty, level = level, score = score, highScore = highScore,
+            title = title, difficulty = difficulty, level = level,
             combo = combo ?: judgments?.takeIf { it.isFullCombo }?.total,
             perfect = counts["PERFECT"], great = counts["GREAT"], good = counts["GOOD"], bad = counts["BAD"], miss = counts["MISS"],
             fast = fast, late = late, fullComboText = fullComboText, allPerfectText = allPerfectText,
@@ -226,4 +213,8 @@ object ResultParser {
         val title = candidates.filter { it.height >= maxH * 0.85f }.minByOrNull { it.top }!!.text.trim()
         return ParsedSongSelect(title, levels)
     }
+
+    /** the difficulty shown on the live prepare screen */
+    fun parseLivePrepare(boxes: List<OcrBox>): Difficulty? =
+        boxes.firstNotNullOfOrNull { b -> Difficulty.entries.firstOrNull { TextNorm.matchesLabel(b.text, it.label) } }
 }

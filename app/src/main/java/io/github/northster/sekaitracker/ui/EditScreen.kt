@@ -79,7 +79,6 @@ private fun EditForm(r: PlayRecord, onDone: () -> Unit) {
     var title by remember { mutableStateOf(r.title) }
     var difficulty by remember { mutableStateOf(r.difficulty) }
     var level by remember { mutableStateOf(r.level?.toString().orEmpty()) }
-    var score by remember { mutableStateOf(r.score?.toString().orEmpty()) }
     var combo by remember { mutableStateOf(r.combo?.toString().orEmpty()) }
     var perfect by remember { mutableStateOf(r.judgments.perfect.toString()) }
     var great by remember { mutableStateOf(r.judgments.great.toString()) }
@@ -114,7 +113,6 @@ private fun EditForm(r: PlayRecord, onDone: () -> Unit) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             NumberField("레벨", level, Modifier.weight(1f)) { level = it }
-            NumberField("점수", score, Modifier.weight(2f)) { score = it }
             NumberField("콤보", combo, Modifier.weight(1.3f)) { combo = it }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -136,7 +134,7 @@ private fun EditForm(r: PlayRecord, onDone: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = valid, onClick = {
                 val updated = r.copy(
-                    title = title.trim(), difficulty = difficulty, level = int(level), score = score.trim().toLongOrNull(),
+                    title = title.trim(), difficulty = difficulty, level = int(level),
                     combo = int(combo), judgments = judgments, fast = int(fast), late = int(late),
                 )
                 if (r.pending) ResultPipeline.confirm(updated) else {

@@ -35,6 +35,7 @@ import io.github.northster.sekaitracker.data.Source
 import io.github.northster.sekaitracker.ocr.Recognizer
 import io.github.northster.sekaitracker.ocr.ResultParser
 import io.github.northster.sekaitracker.ocr.ScreenKind
+import io.github.northster.sekaitracker.overlay.CaptureButton
 import io.github.northster.sekaitracker.overlay.ResultOverlay
 import io.github.northster.sekaitracker.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
@@ -57,8 +58,10 @@ import kotlin.math.roundToInt
 /**
  * Looks at the screen through MediaProjection (screen capture only: the game's data and memory are never touched).
  *
- * To save battery the screen is not mirrored all the time: every interval the capture surface is attached, one frame is
- * taken, and the surface is detached again. OCR only runs when [FrameGate] sees a new still picture.
+ * Button mode (default): nothing is captured until the floating button, the quick settings tile or the notification
+ * action is tapped; the screen is not mirrored in between, so waiting costs no battery.
+ * Auto mode: every interval the capture surface is attached, one frame is taken, and the surface is detached again.
+ * OCR only runs when [FrameGate] sees a new still picture.
  */
 class CaptureService : Service() {
     private lateinit var thread: HandlerThread
@@ -79,6 +82,8 @@ class CaptureService : Service() {
     private var screenOn = true
     private var loopJob: Job? = null
     private val gate = FrameGate()
+    /** song whose best records were shown last, so auto mode does not show them again for the same song */
+    private var lastShownSong: String? = null
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -91,7 +96,11 @@ class CaptureService : Service() {
         override fun onDisplayAdded(displayId: Int) {}
         override fun onDisplayRemoved(displayId: Int) {}
         // folding / unfolding switches the default display between the inner and the cover screen
-        override fun onDisplayChanged(displayId: Int) { if (displayId == Display.DEFAULT_DISPLAY) handler.post { resizeTo(screenSize()) } }
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId != Display.DEFAULT_DISPLAY) return
+            handler.post { resizeTo(screenSize()) }
+            CaptureButton.onDisplayChanged()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -118,8 +127,7 @@ class CaptureService : Service() {
             }
             ACTION_CAPTURE_NOW -> {
                 if (projection == null) { stopSelf(); return START_NOT_STICKY }
-                val delayMs = intent.getLongExtra(EXTRA_DELAY_MS, 0)
-                scope.launch { delay(delayMs); tick(force = true) }
+                requestCapture(intent.getLongExtra(EXTRA_DELAY_MS, 0))
             }
             ACTION_STOP -> stopSelf()
         }
@@ -138,23 +146,50 @@ class CaptureService : Service() {
         width = w; height = h
         val r = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
         reader = r
-        keepAttached = !Settings.current.pauseMirroring
+        keepAttached = Settings.current.autoDetect && !Settings.current.pauseMirroring
         virtualDisplay = p.createVirtualDisplay("SekaiTracker", w, h, resources.displayMetrics.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, if (keepAttached) r.surface else null, null, handler)
         surfaceAttached = keepAttached
         runningState.value = true
         status.value = "실행 중"
         TileService.requestListeningState(this, ComponentName(this, CaptureTileService::class.java))
+        scope.launch {
+            Settings.flow.collect { s ->
+                if (s.showButton) CaptureButton.show(this@CaptureService) { requestCapture(0) } else CaptureButton.remove()
+                // switched to button mode while running: stop mirroring
+                if (!s.autoDetect && keepAttached) { keepAttached = false; detachSurface() }
+            }
+        }
         loopJob = scope.launch {
             while (isActive) {
                 val s = Settings.current
-                delay(s.intervalMs)
-                if (!screenOn || !s.autoDetect) continue
+                // button mode only checks which app is in front (to hide the button outside the game), without capturing
+                delay(if (s.autoDetect) s.intervalMs else 2000)
+                if (!screenOn) continue
                 if (s.onlyInGame && ForegroundApp.hasPermission(this@CaptureService)) {
                     val pkg = ForegroundApp.current(this@CaptureService)
-                    if (pkg != null && pkg !in s.gamePackages) { detachSurface(); gate.reset(); continue }
+                    if (pkg != null && pkg !in s.gamePackages) {
+                        CaptureButton.hide("game")
+                        if (s.autoDetect) { detachSurface(); gate.reset() }
+                        continue
+                    }
+                    CaptureButton.unhide("game")
                 }
-                tick(force = false)
+                if (s.autoDetect) tick(force = false)
+            }
+        }
+    }
+
+    /** read the screen once now (button, tile, notification); the button and the last overlay are hidden for the frame */
+    private fun requestCapture(delayMs: Long) {
+        scope.launch {
+            ResultOverlay.hideAsync()
+            CaptureButton.hide("capture")
+            delay(maxOf(delayMs, 150))
+            try {
+                tick(force = true) { CaptureButton.unhide("capture") }
+            } finally {
+                CaptureButton.unhide("capture")
             }
         }
     }
@@ -197,7 +232,7 @@ class CaptureService : Service() {
     }
 
     /** one frame from the screen, or null */
-    private suspend fun grabFrame(): Bitmap? {
+    private suspend fun grabFrame(waitMs: Long): Bitmap? {
         val r = reader ?: return null
         val image = if (keepAttached) {
             // mirroring all the time: no new image means the screen did not change
@@ -207,7 +242,7 @@ class CaptureService : Service() {
             virtualDisplay?.surface = r.surface
             surfaceAttached = true
             var img: android.media.Image? = null
-            val deadline = attachedAt + 800_000_000L
+            val deadline = attachedAt + waitMs * 1_000_000L
             while (img == null && System.nanoTime() < deadline) {
                 img = r.acquireLatestImage()
                 if (img != null && img.timestamp in 1L until attachedAt - 50_000_000L) { img.close(); img = null } // left from before
@@ -216,7 +251,7 @@ class CaptureService : Service() {
             detachSurface()
             if (img == null) {
                 // some devices only send a frame when something moves; then keep mirroring instead
-                if (++timeouts >= 3) { keepAttached = true; virtualDisplay?.surface = r.surface; surfaceAttached = true }
+                if (Settings.current.autoDetect && ++timeouts >= 3) { keepAttached = true; virtualDisplay?.surface = r.surface; surfaceAttached = true }
                 return frame
             }
             timeouts = 0
@@ -234,10 +269,12 @@ class CaptureService : Service() {
         return frame
     }
 
-    private suspend fun tick(force: Boolean) { tickLock.withLock { tickLocked(force) } }
+    private suspend fun tick(force: Boolean, afterGrab: () -> Unit = {}) { tickLock.withLock { tickLocked(force, afterGrab) } }
 
-    private suspend fun tickLocked(force: Boolean) {
-        val bmp = runCatching { grabFrame() }.getOrNull() ?: run {
+    private suspend fun tickLocked(force: Boolean, afterGrab: () -> Unit) {
+        val grabbed = runCatching { grabFrame(if (force) 1500 else 800) }.getOrNull()
+        afterGrab()
+        val bmp = grabbed ?: run {
             if (force) ResultOverlay.showMessage(this, "화면을 가져오지 못했어요")
             return
         }
@@ -257,7 +294,7 @@ class CaptureService : Service() {
             when (ResultParser.classify(boxes)) {
                 ScreenKind.RESULT -> {
                     val parsed = ResultParser.parseResult(boxes, crop.height)
-                    val outcome = ResultPipeline.handle(this, parsed, crop, if (force) Source.TILE else Source.AUTO)
+                    val outcome = ResultPipeline.handle(this, parsed, crop, if (force) Source.BUTTON else Source.AUTO)
                     status.value = "${time()} 결과 화면: " + when (outcome) {
                         is ResultPipeline.Outcome.Saved -> "저장함 (${outcome.record.title})"
                         is ResultPipeline.Outcome.NeedsReview -> "확인 필요 (${outcome.record.title.ifBlank { "?" }})"
@@ -265,13 +302,28 @@ class CaptureService : Service() {
                     }
                 }
                 ScreenKind.SONG_SELECT -> {
-                    ResultParser.parseSongSelect(boxes, crop.height)?.let { ResultPipeline.onSongSelect(it) }
-                    status.value = "${time()} 곡 선택 화면"
-                    if (force) ResultOverlay.showMessage(this, "곡 선택 화면이에요. 결과 화면에서 눌러 주세요")
+                    val title = ResultParser.parseSongSelect(boxes, crop.height)?.let { ResultPipeline.onSongSelect(it) }
+                    status.value = "${time()} 곡 선택 화면" + (title?.let { ": $it" } ?: "")
+                    if (title == null) {
+                        if (force) ResultOverlay.showMessage(this, "곡 이름을 읽지 못했어요")
+                    } else if (force || title != lastShownSong) {
+                        lastShownSong = title
+                        ResultOverlay.showSongBest(this, title, ResultPipeline.charts(title))
+                    }
+                }
+                ScreenKind.LIVE_PREPARE -> {
+                    val difficulty = ResultParser.parseLivePrepare(boxes)
+                    val title = ResultPipeline.selectedSong()
+                    status.value = "${time()} 라이브 준비 화면"
+                    if (difficulty != null && title != null) {
+                        ResultOverlay.showChartBest(this, title, difficulty, ResultPipeline.charts(title).firstOrNull { it.difficulty == difficulty })
+                    } else if (force) {
+                        ResultOverlay.showMessage(this, "곡 선택 화면에서 먼저 한 번 눌러 주세요")
+                    }
                 }
                 ScreenKind.OTHER -> {
                     status.value = "${time()} 결과 화면 아님"
-                    if (force) ResultOverlay.showMessage(this, "결과 화면을 찾지 못했어요")
+                    if (force) ResultOverlay.showMessage(this, "결과·곡 선택 화면이 아니에요")
                 }
             }
         } finally {
@@ -294,6 +346,7 @@ class CaptureService : Service() {
         runCatching { unregisterReceiver(screenReceiver) }
         getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener)
         ResultOverlay.hideAsync()
+        CaptureButton.remove()
         TileService.requestListeningState(this, ComponentName(this, CaptureTileService::class.java))
         super.onDestroy()
     }
@@ -301,7 +354,7 @@ class CaptureService : Service() {
     private fun notification() = NotificationCompat.Builder(this, SekaiApp.CHANNEL_SERVICE)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle("세카이 기록 인식 중")
-        .setContentText(if (Settings.current.autoDetect) "결과 화면을 자동으로 찾고 있어요" else "타일이나 [지금 캡처]를 누르면 인식해요")
+        .setContentText(if (Settings.current.autoDetect) "결과 화면을 자동으로 찾고 있어요" else "떠 있는 버튼이나 [지금 캡처]를 누를 때만 화면을 읽어요")
         .setOngoing(true)
         .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
         .addAction(0, "지금 캡처", PendingIntent.getActivity(this, 1, Intent(this, ManualCaptureActivity::class.java)

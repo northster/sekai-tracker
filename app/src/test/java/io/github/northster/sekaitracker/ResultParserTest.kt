@@ -27,8 +27,6 @@ class ResultParserTest {
         val r = ResultParser.parseResult(boxes, 1248)
         assertEquals(Difficulty.MASTER, r.difficulty)
         assertEquals(31, r.level)
-        assertEquals(1123121L, r.score)
-        assertEquals(1505482L, r.highScore)
         assertEquals(1187, r.combo)
         assertEquals(listOf(1166, 21, 0, 0, 0), listOf(r.perfect, r.great, r.good, r.bad, r.miss))
         assertEquals(17, r.fast)
@@ -48,8 +46,6 @@ class ResultParserTest {
         assertEquals("ももいろの鍵", r.title)
         assertEquals(Difficulty.MASTER, r.difficulty)
         assertEquals(31, r.level)
-        assertEquals(1123121L, r.score)
-        assertEquals(1505482L, r.highScore)
         assertEquals(1187, r.combo)
         assertEquals(listOf(1166, 21, 0, 0, 0), listOf(r.perfect, r.great, r.good, r.bad, r.miss))
         assertEquals(4, r.late)
@@ -78,8 +74,6 @@ class ResultParserTest {
         assertEquals(listOf(500, 10, 0, 0, 2), listOf(r.perfect, r.great, r.good, r.bad, r.miss))
         assertEquals(Difficulty.EXPERT, r.difficulty)
         assertEquals("曲名", r.title)
-        assertEquals(987654L, r.score)
-        assertNull(r.highScore)
     }
 
     @Test fun allPerfectBannerIsNotThePerfectRow() {
@@ -111,8 +105,14 @@ class ResultParserTest {
         )
     }
 
+    @Test fun livePrepareScreen() {
+        val boxes = load("live_prepare_rapidocr.tsv")
+        assertEquals(ScreenKind.LIVE_PREPARE, ResultParser.classify(boxes))
+        assertEquals(Difficulty.EXPERT, ResultParser.parseLivePrepare(boxes))
+    }
+
     @Test fun otherScreens() {
-        assertEquals(ScreenKind.OTHER, ResultParser.classify(listOf(OcrBox("おすすめ編成", 0, 0, 10, 10), OcrBox("EXPERT", 0, 20, 10, 30))))
+        assertEquals(ScreenKind.OTHER, ResultParser.classify(listOf(OcrBox("ガチャ", 0, 0, 10, 10), OcrBox("EXPERT", 0, 20, 10, 30))))
     }
 
     @Test fun numbers() {

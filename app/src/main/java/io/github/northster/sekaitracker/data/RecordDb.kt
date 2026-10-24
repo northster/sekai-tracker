@@ -81,6 +81,8 @@ object RecordDb {
         if (difficulty == null) query("title = ? AND difficulty IS NULL AND pending = 0", arrayOf(title), "played_at ASC")
         else query("title = ? AND difficulty = ? AND pending = 0", arrayOf(title, difficulty.name), "played_at ASC")
 
+    fun forTitle(title: String): List<PlayRecord> = query("title = ? AND pending = 0", arrayOf(title), "played_at ASC")
+
     /** a play with the same numbers saved (or waiting) shortly before is the same result screen seen again */
     fun isDuplicate(record: PlayRecord, withinMs: Long = 30 * 60_000L): Boolean =
         helper.readableDatabase.rawQuery(

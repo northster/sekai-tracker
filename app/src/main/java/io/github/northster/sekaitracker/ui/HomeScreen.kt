@@ -105,9 +105,9 @@ fun HomeScreen(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit, onOp
                 Column(Modifier.padding(16.dp).fillMaxWidth()) {
                     Text(if (running) "인식 중" else "꺼져 있음", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        if (!running) "시작하면 결과 화면을 찾아 자동으로 기록해요. 화면 캡처만 쓰고 게임 데이터는 건드리지 않아요."
-                        else if (settings.autoDetect) "${settings.intervalMs / 1000.0}초마다 화면을 확인 · $status"
-                        else "자동 감지 꺼짐 · 빠른 설정 타일로 캡처 · $status",
+                        if (!running) "시작하면 게임 위에 작은 버튼이 떠요. 결과 화면에서 누르면 기록하고, 곡 선택 화면에서 누르면 이전 최고 기록을 보여줘요. 화면 캡처만 쓰고 게임 데이터는 건드리지 않아요."
+                        else if (settings.autoDetect) "자동: ${settings.intervalMs / 1000}초마다 화면을 확인 · $status"
+                        else "버튼을 누를 때만 화면을 읽어요 · $status",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.padding(4.dp))
@@ -160,7 +160,7 @@ fun RecordRow(r: PlayRecord, modifier: Modifier = Modifier, warning: String? = n
                     Text(dateTime(r.playedAt), style = MaterialTheme.typography.bodySmall)
                 }
                 val j = r.judgments
-                Text("${j.perfect} / ${j.great} / ${j.good} / ${j.bad} / ${j.miss}" + (r.score?.let { " · $it" } ?: ""),
+                Text("${j.perfect} / ${j.great} / ${j.good} / ${j.bad} / ${j.miss}",
                     style = MaterialTheme.typography.bodySmall)
                 warning?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }

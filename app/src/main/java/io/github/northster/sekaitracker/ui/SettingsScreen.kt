@@ -102,18 +102,31 @@ fun SettingsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
         WeightsEditor(s.weights) { w -> Settings.update { it.copy(weights = w) } }
 
         Section("화면 인식")
-        Toggle("결과 화면 자동 감지", "끄면 빠른 설정 타일이나 알림의 [지금 캡처]를 눌렀을 때만 인식해요", s.autoDetect) { v -> Settings.update { it.copy(autoDetect = v) } }
-        Text("확인 간격", style = MaterialTheme.typography.bodyMedium)
-        Choices(listOf(500L, 1000L, 2000L, 3000L, 5000L), s.intervalMs, { "${it / 1000.0}초" }) { v -> Settings.update { it.copy(intervalMs = v) } }
+        Text("읽는 방식", style = MaterialTheme.typography.bodyMedium)
+        Choices(listOf(false, true), s.autoDetect, { if (it) "자동 (일정 간격으로 확인)" else "버튼 (누를 때만, 배터리 절약)" }) { v ->
+            Settings.update { it.copy(autoDetect = v) }
+        }
+        Text(
+            if (s.autoDetect) "결과 화면을 스스로 찾아요. 확인할 때마다 화면을 한 장 가져오고, 멈춘 새 화면일 때만 글자를 읽어요."
+            else "떠 있는 버튼(또는 빠른 설정 타일, 알림의 [지금 캡처])을 누를 때만 화면을 한 장 읽어요. 그 사이에는 화면을 전혀 가져오지 않아요.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Toggle("떠 있는 캡처 버튼", "결과·곡 선택·라이브 준비 화면에서 누르면 기록하거나 이전 최고 기록을 보여줘요. 끌어서 옮길 수 있어요", s.showButton) { v ->
+            Settings.update { it.copy(showButton = v) }
+        }
+        if (s.autoDetect) {
+            Text("확인 간격", style = MaterialTheme.typography.bodyMedium)
+            Choices(listOf(1000L, 2000L, 3000L, 5000L), s.intervalMs, { "${it / 1000}초" }) { v -> Settings.update { it.copy(intervalMs = v) } }
+            Toggle("확인할 때만 화면 가져오기", "확인 사이에는 화면 미러링을 멈춰서 배터리와 발열을 줄여요 (다시 시작하면 적용)", s.pauseMirroring) { v ->
+                Settings.update { it.copy(pauseMirroring = v) }
+            }
+        }
         Text("캡처 해상도 (다시 시작하면 적용)", style = MaterialTheme.typography.bodyMedium)
         Choices(CaptureQuality.entries, s.quality, { it.label }) { v -> Settings.update { it.copy(quality = v) } }
-        Toggle("확인할 때만 화면 가져오기", "확인 사이에는 화면 미러링을 멈춰서 배터리와 발열을 줄여요 (다시 시작하면 적용)", s.pauseMirroring) { v ->
-            Settings.update { it.copy(pauseMirroring = v) }
-        }
         Text("인식 언어", style = MaterialTheme.typography.bodyMedium)
         Choices(OcrLanguage.entries, s.ocrLanguage, { it.label }) { v -> Settings.update { it.copy(ocrLanguage = v) } }
 
-        Toggle("게임 실행 중에만 확인", "다른 앱을 쓸 때는 화면을 보지 않아요. '사용 정보 접근' 권한이 필요해요", s.onlyInGame) { v ->
+        Toggle("게임 중에만 버튼 표시·확인", "다른 앱을 쓸 때는 버튼을 숨기고 화면을 보지 않아요. '사용 정보 접근' 권한이 필요해요", s.onlyInGame) { v ->
             Settings.update { it.copy(onlyInGame = v) }
             if (v && !usageAccess) context.startActivity(Intent(AndroidSettings.ACTION_USAGE_ACCESS_SETTINGS))
         }

@@ -14,6 +14,8 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
+import io.github.northster.sekaitracker.data.ChartStats
+import io.github.northster.sekaitracker.data.Difficulty
 import io.github.northster.sekaitracker.data.OverlayCorner
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.Settings
@@ -24,7 +26,7 @@ import java.util.Locale
  * Small box in a screen corner after a result was read. It can never get in the way of playing:
  * - it does not take touches (FLAG_NOT_TOUCHABLE) and its opacity stays at 0.8, the limit up to which Android 12+
  *   passes touches through windows of other apps
- * - it is only added for a few seconds after a result screen, and removed as soon as the screen changes
+ * - it is only added for a few seconds after a screen was read, and removed as soon as the screen changes
  */
 object ResultOverlay {
     private val main = Handler(Looper.getMainLooper())
@@ -38,7 +40,7 @@ object ResultOverlay {
         val best = when {
             cmp.previousBest == null -> "첫 기록"
             cmp.newBest -> "최고 기록 갱신! (이전 ${pct(cmp.previousBest)})"
-            else -> "최고 ${pct(cmp.previousBest)} · ${String.format(Locale.US, "%+.2f", (cmp.accuracy ?: 0.0) - cmp.previousBest)}%p"
+            else -> "이전 최고 ${pct(cmp.previousBest)} · ${String.format(Locale.US, "%+.2f", (cmp.accuracy ?: 0.0) - cmp.previousBest)}%p"
         }
         val tag = when { record.allPerfect -> "ALL PERFECT"; record.fullCombo -> "FULL COMBO"; else -> null }
         show(context, listOfNotNull(head, "정확도 ${pct(cmp.accuracy)}" + (tag?.let { "  $it" } ?: ""), best),
@@ -46,12 +48,31 @@ object ResultOverlay {
     }
 
     fun showReview(context: Context, record: PlayRecord, cmp: Stats.Comparison) {
-        show(context, listOf(record.title.ifBlank { "결과 인식" }, "정확도 ${pct(cmp.accuracy)} (확인 전)", "확인 필요 · 알림을 눌러 수정"), highlight = false)
+        show(context, listOf(
+            record.title.ifBlank { "결과 인식" },
+            "정확도 ${pct(cmp.accuracy)} (확인 전)",
+            cmp.previousBest?.let { "이전 최고 ${pct(it)}" } ?: "이전 기록 없음",
+            "확인 필요 · 알림을 눌러 수정",
+        ), highlight = false)
     }
+
+    /** song select: the best of every difficulty played so far */
+    fun showSongBest(context: Context, title: String, charts: List<ChartStats>) {
+        val lines = listOf(title) + if (charts.isEmpty()) listOf("이 곡 기록 없음") else charts.map { chartLine(it) }
+        show(context, lines, highlight = false, boldLine = -1)
+    }
+
+    /** live prepare: the best of the difficulty about to be played */
+    fun showChartBest(context: Context, title: String, difficulty: Difficulty, chart: ChartStats?) {
+        show(context, listOf(title, chart?.let { chartLine(it) } ?: "${difficulty.label} · 기록 없음"), highlight = false)
+    }
+
+    private fun chartLine(c: ChartStats) = "${c.difficulty?.label ?: "?"}${c.level?.let { " $it" } ?: ""} · 최고 ${pct(c.bestAccuracy)}" +
+        (if (c.allPerfect) " AP" else if (c.fullCombo) " FC" else "") + " · ${c.plays}회"
 
     fun showMessage(context: Context, text: String) = show(context, listOf(text), highlight = false, seconds = 2)
 
-    private fun show(context: Context, lines: List<String>, highlight: Boolean, seconds: Int = Settings.current.overlaySeconds) {
+    private fun show(context: Context, lines: List<String>, highlight: Boolean, seconds: Int = Settings.current.overlaySeconds, boldLine: Int = 1) {
         val settings = Settings.current
         if (!settings.overlayEnabled || !AndroidSettings.canDrawOverlays(context)) return
         val app = context.applicationContext
@@ -71,8 +92,8 @@ object ResultOverlay {
                     addView(TextView(app).apply {
                         text = line
                         setTextColor(if (i == 2 && highlight) Color.rgb(255, 150, 205) else Color.WHITE)
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (i == 1) 15f else 12f)
-                        if (i == 1) setTypeface(typeface, Typeface.BOLD)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (i == boldLine) 15f else 12f)
+                        if (i == boldLine || i == 0) setTypeface(typeface, Typeface.BOLD)
                         maxLines = 1
                     })
                 }

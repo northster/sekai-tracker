@@ -23,7 +23,13 @@ enum class CaptureQuality(val label: String, val longSide: Int) {
 
 data class AppSettings(
     val weights: Weights = Weights(),
-    val autoDetect: Boolean = true,
+    /** false: only the floating button, tile or notification reads the screen (no periodic capture at all) */
+    val autoDetect: Boolean = false,
+    /** small floating button that reads the screen when tapped */
+    val showButton: Boolean = true,
+    /** where the button was dragged to, in pixels from the left / top edge; -1 = not moved yet */
+    val buttonX: Int = -1,
+    val buttonY: Int = -1,
     val intervalMs: Long = 1000,
     val quality: CaptureQuality = CaptureQuality.NORMAL,
     /** detach the capture surface between checks so the screen is not mirrored all the time */
@@ -61,7 +67,10 @@ object Settings {
         return AppSettings(
             weights = Weights(dbl("w_perfect", d.weights.perfect), dbl("w_great", d.weights.great), dbl("w_good", d.weights.good),
                 dbl("w_bad", d.weights.bad), dbl("w_miss", d.weights.miss)),
-            autoDetect = prefs.getBoolean("auto_detect", d.autoDetect),
+            autoDetect = prefs.getBoolean("auto_mode", d.autoDetect),
+            showButton = prefs.getBoolean("show_button", d.showButton),
+            buttonX = prefs.getInt("button_x", d.buttonX),
+            buttonY = prefs.getInt("button_y", d.buttonY),
             intervalMs = prefs.getLong("interval_ms", d.intervalMs),
             quality = enumOr(prefs.getString("quality", null), d.quality),
             pauseMirroring = prefs.getBoolean("pause_mirroring", d.pauseMirroring),
@@ -83,7 +92,9 @@ object Settings {
         prefs.edit {
             putFloat("w_perfect", s.weights.perfect.toFloat()); putFloat("w_great", s.weights.great.toFloat())
             putFloat("w_good", s.weights.good.toFloat()); putFloat("w_bad", s.weights.bad.toFloat()); putFloat("w_miss", s.weights.miss.toFloat())
-            putBoolean("auto_detect", s.autoDetect); putLong("interval_ms", s.intervalMs); putString("quality", s.quality.name)
+            putBoolean("auto_mode", s.autoDetect); putBoolean("show_button", s.showButton)
+            putInt("button_x", s.buttonX); putInt("button_y", s.buttonY)
+            putLong("interval_ms", s.intervalMs); putString("quality", s.quality.name)
             putBoolean("pause_mirroring", s.pauseMirroring); putBoolean("only_in_game", s.onlyInGame)
             putString("game_packages", s.gamePackages.joinToString(","))
             putBoolean("overlay", s.overlayEnabled); putString("overlay_corner", s.overlayCorner.name); putInt("overlay_seconds", s.overlaySeconds)

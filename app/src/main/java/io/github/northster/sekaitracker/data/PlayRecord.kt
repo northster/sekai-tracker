@@ -31,7 +31,7 @@ data class Weights(
     }
 }
 
-enum class Source { AUTO, TILE, IMPORT, MANUAL }
+enum class Source { AUTO, BUTTON, TILE, IMPORT, MANUAL }
 
 data class PlayRecord(
     val id: Long = 0,

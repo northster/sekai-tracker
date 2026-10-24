@@ -10,7 +10,6 @@ data class ChartStats(
     val averageAccuracy: Double?,
     /** average of the last [RECENT] plays minus the average of the plays before them, null without enough plays */
     val recentTrend: Double?,
-    val bestScore: Long?,
     val fullCombo: Boolean,
     val allPerfect: Boolean,
     val lastPlayedAt: Long,
@@ -34,7 +33,6 @@ object Stats {
             bestAccuracy = acc.maxOrNull(),
             averageAccuracy = acc.takeIf { it.isNotEmpty() }?.average(),
             recentTrend = trend,
-            bestScore = saved.mapNotNull { it.score }.maxOrNull(),
             fullCombo = saved.any { it.fullCombo },
             allPerfect = saved.any { it.allPerfect },
             lastPlayedAt = saved.last().playedAt,
@@ -48,19 +46,16 @@ object Stats {
         .sortedByDescending { it.lastPlayedAt }
 
     /** what the overlay shows after a play */
-    data class Comparison(val accuracy: Double?, val previousBest: Double?, val newBest: Boolean, val previousBestScore: Long?, val newBestScore: Boolean)
+    data class Comparison(val accuracy: Double?, val previousBest: Double?, val newBest: Boolean)
 
     fun compare(play: PlayRecord, earlier: List<PlayRecord>, weights: Weights): Comparison {
         val acc = weights.accuracy(play.judgments)
         val prev = earlier.filter { !it.pending && it.id != play.id }
         val prevBest = prev.mapNotNull { weights.accuracy(it.judgments) }.maxOrNull()
-        val prevBestScore = prev.mapNotNull { it.score }.maxOrNull()
         return Comparison(
             accuracy = acc,
             previousBest = prevBest,
             newBest = acc != null && (prevBest == null || acc > prevBest + 1e-9),
-            previousBestScore = prevBestScore,
-            newBestScore = play.score != null && (prevBestScore == null || play.score > prevBestScore),
         )
     }
 }
