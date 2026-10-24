@@ -40,6 +40,7 @@ data class ParsedSongSelect(val title: String, val levels: Map<Difficulty, Int>)
  * - middle: "FULL COMBO" / "ALL PERFECT" banner, "COMBO 1187", LATE / FAST labels with counts below, FLICK
  */
 object ResultParser {
+    const val TITLE_MISSING = "곡 이름을 읽지 못함"
     private val judgmentLabels = listOf("PERFECT", "GREAT", "GOOD", "BAD", "MISS")
     private val levelRegex = Regex("""[Ll][VvＶｖ][.．。,]?\s*([0-9OoIl]{1,2})""")
     private val livePrepareText = Regex("""総合力|総合|종합력|おすすめ編成|추천\s*편성""")
@@ -131,7 +132,7 @@ object ResultParser {
             ?.second?.groupValues?.get(1)?.let { TextNorm.parseNumber(it)?.toInt() }
 
         val title = diffBox?.let { findTitle(it, boxes) }.orEmpty()
-        if (title.isBlank()) issues += "곡 이름을 읽지 못함"
+        if (title.isBlank()) issues += TITLE_MISSING
 
 
         val comboLabel = boxes.firstOrNull { TextNorm.labelLetters(it.text) == "COMBO" || TextNorm.matchesLabel(it.text, "COMBO") }
@@ -183,6 +184,29 @@ object ResultParser {
         val nearest = above.maxByOrNull { it.bottom } ?: return null
         // long titles may come in pieces on one row
         return above.filter { it.sameRow(nearest) }.sortedBy { it.left }.joinToString(" ") { it.text.trim() }.trim()
+    }
+
+    /**
+     * Where the song title is on the result screen, as left, top, right, bottom: above the difficulty badge, or the top
+     * left corner when the badge was not read. Used to read the title again, enlarged, when the first OCR missed it.
+     */
+    fun titleRegion(boxes: List<OcrBox>, width: Int, height: Int): IntArray {
+        val diff = boxes.filter { b -> Difficulty.entries.any { TextNorm.matchesLabel(b.text, it.label) } }.minByOrNull { it.top }
+        val r = if (diff != null) intArrayOf(
+            (diff.left - diff.width * 0.5f).toInt(), (diff.top - diff.height * 2.6f).toInt(),
+            (diff.left + diff.width * 5f).toInt(), (diff.top - diff.height * 0.05f).toInt(),
+        ) else intArrayOf((width * 0.15f).toInt(), 0, (width * 0.6f).toInt(), (height * 0.085f).toInt())
+        return intArrayOf(r[0].coerceIn(0, width), r[1].coerceIn(0, height), r[2].coerceIn(0, width), r[3].coerceIn(0, height))
+    }
+
+    /** the title from OCR of the enlarged title area: the tallest text line, pieces on its row joined */
+    fun titleFromCrop(boxes: List<OcrBox>): String {
+        val text = boxes.filter {
+            !isNumeric(it) && !levelRegex.containsMatchIn(it.text) && TextNorm.titleKey(it.text).isNotEmpty() &&
+                Difficulty.entries.none { d -> TextNorm.matchesLabel(it.text, d.label) }
+        }
+        val tallest = text.maxByOrNull { it.height } ?: return ""
+        return text.filter { it.sameRow(tallest) }.sortedBy { it.left }.joinToString(" ") { it.text.trim() }.trim()
     }
 
     /**

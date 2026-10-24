@@ -1,6 +1,7 @@
 package io.github.northster.sekaitracker.ui
 
 import android.graphics.BitmapFactory
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,10 +36,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.northster.sekaitracker.capture.ResultPipeline
@@ -47,8 +50,12 @@ import io.github.northster.sekaitracker.data.Judgments
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.RecordDb
 import io.github.northster.sekaitracker.data.Settings
+import io.github.northster.sekaitracker.ocr.Recognizer
 import io.github.northster.sekaitracker.ocr.TextNorm
+import io.github.northster.sekaitracker.ocr.TitleMatcher
+import io.github.northster.sekaitracker.ocr.TitleRetry
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Check a recognized result before it is saved, or fix a saved one. */
@@ -88,6 +95,9 @@ private fun EditForm(r: PlayRecord, onDone: () -> Unit) {
     var fast by remember { mutableStateOf(r.fast?.toString().orEmpty()) }
     var late by remember { mutableStateOf(r.late?.toString().orEmpty()) }
     val known = dbState(emptySet<String>()) { RecordDb.titles() }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var rereading by remember { mutableStateOf(false) }
     val image = remember(r.imagePath) { r.imagePath?.let { runCatching { BitmapFactory.decodeFile(it)?.asImageBitmap() }.getOrNull() } }
 
     fun int(s: String) = s.trim().toIntOrNull()
@@ -107,6 +117,43 @@ private fun EditForm(r: PlayRecord, onDone: () -> Unit) {
             suggestions.forEach { s -> SuggestionChip(onClick = { title = s }, label = { Text(s) }) }
         }
         if (r.ocrTitle.isNotBlank() && r.ocrTitle != title) Text("인식한 글자: ${r.ocrTitle}", style = MaterialTheme.typography.bodySmall)
+        if (r.imagePath != null) {
+            OutlinedButton(enabled = !rereading, onClick = {
+                rereading = true
+                scope.launch {
+                    val again = withContext(Dispatchers.Default) {
+                        runCatching {
+                            val bmp = BitmapFactory.decodeFile(r.imagePath) ?: return@runCatching null
+                            val lang = Settings.current.ocrLanguage
+                            TitleRetry.read(bmp, Recognizer.read(bmp, lang), lang)
+                        }.getOrNull()
+                    }
+                    rereading = false
+                    if (again == null) Toast.makeText(context, "곡 이름을 찾지 못했어요. 아래 목록에서 골라 주세요", Toast.LENGTH_SHORT).show()
+                    else title = withContext(Dispatchers.IO) { TitleMatcher.match(again, RecordDb.titles(), RecordDb.aliases()).title }
+                }
+            }) { Text(if (rereading) "읽는 중…" else "곡 이름 다시 읽기") }
+        }
+        // pick instead of typing: songs with this difficulty's level (learned on the song select screen), recent songs
+        val atLevel = dbState(emptyList<String>(), difficulty, level) {
+            val d = difficulty; val l = level.trim().toIntOrNull()
+            if (d != null && l != null) RecordDb.songsAt(d, l) else emptyList()
+        }
+        val recentTitles = dbState(emptyList<String>()) {
+            (listOfNotNull(ResultPipeline.selectedSong()) + RecordDb.recentTitles(10)).distinct()
+        }
+        if (atLevel.isNotEmpty()) {
+            Text("${difficulty?.label} $level 곡", style = MaterialTheme.typography.labelMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                atLevel.forEach { t -> FilterChip(selected = t == title, onClick = { title = t }, label = { Text(t) }) }
+            }
+        }
+        if (recentTitles.isNotEmpty()) {
+            Text("최근 곡", style = MaterialTheme.typography.labelMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                recentTitles.forEach { t -> FilterChip(selected = t == title, onClick = { title = t }, label = { Text(t) }) }
+            }
+        }
 
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Difficulty.entries.forEach { d -> FilterChip(selected = difficulty == d, onClick = { difficulty = d }, label = { Text(d.label) }) }

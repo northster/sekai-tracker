@@ -42,7 +42,6 @@ data class AppSettings(
     val overlayCorner: OverlayCorner = OverlayCorner.BOTTOM_LEFT,
     val overlaySeconds: Int = 5,
     val reviewMode: ReviewMode = ReviewMode.WHEN_UNSURE,
-    val reviewNewSongs: Boolean = true,
     val ocrLanguage: OcrLanguage = OcrLanguage.JAPANESE,
     val keepImages: Boolean = false,
 ) {
@@ -84,7 +83,6 @@ object Settings {
             overlayCorner = enumOr(prefs.getString("overlay_corner", null), d.overlayCorner),
             overlaySeconds = prefs.getInt("overlay_seconds", d.overlaySeconds),
             reviewMode = enumOr(prefs.getString("review_mode", null), d.reviewMode),
-            reviewNewSongs = prefs.getBoolean("review_new_songs", d.reviewNewSongs),
             ocrLanguage = enumOr(prefs.getString("ocr_language", null), d.ocrLanguage),
             keepImages = prefs.getBoolean("keep_images", d.keepImages),
         )
@@ -101,7 +99,7 @@ object Settings {
             putBoolean("pause_mirroring", s.pauseMirroring); putBoolean("only_in_game", s.onlyInGame)
             putString("game_packages", s.gamePackages.joinToString(","))
             putBoolean("overlay", s.overlayEnabled); putString("overlay_corner", s.overlayCorner.name); putInt("overlay_seconds", s.overlaySeconds)
-            putString("review_mode", s.reviewMode.name); putBoolean("review_new_songs", s.reviewNewSongs)
+            putString("review_mode", s.reviewMode.name)
             putString("ocr_language", s.ocrLanguage.name); putBoolean("keep_images", s.keepImages)
         }
         state.value = s

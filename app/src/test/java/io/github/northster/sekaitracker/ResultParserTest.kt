@@ -105,6 +105,20 @@ class ResultParserTest {
         )
     }
 
+    @Test fun titleRegionCoversTheTitle() {
+        for (name in listOf("result_rapidocr.tsv", "result_mlkit_like.tsv")) {
+            val r = ResultParser.titleRegion(load(name), 1972, 1248)
+            // title "ももいろの鍵" is at 390..583 x 41..71, the level text "楽曲Lv.31" starts at y 109
+            assertTrue(name, r[0] <= 390 && r[1] <= 41 && r[2] >= 583 && r[3] >= 71 && r[3] <= 112)
+        }
+        val fallback = ResultParser.titleRegion(emptyList(), 1972, 1248)
+        assertTrue(fallback[0] <= 390 && fallback[1] <= 41 && fallback[2] >= 583 && fallback[3] >= 71)
+        // OCR of the enlarged crop (coordinates of the crop): level text and numbers are not the title
+        assertEquals("ももいろの鍵", ResultParser.titleFromCrop(listOf(
+            OcrBox("ももいろの鍵", 120, 30, 700, 120), OcrBox("楽曲Lv.31", 800, 230, 1100, 260), OcrBox("31", 1000, 230, 1050, 260),
+        )))
+    }
+
     @Test fun livePrepareScreen() {
         val boxes = load("live_prepare_rapidocr.tsv")
         assertEquals(ScreenKind.LIVE_PREPARE, ResultParser.classify(boxes))

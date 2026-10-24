@@ -82,7 +82,7 @@ fun HomeScreen(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit, onOp
                 val boxes = Recognizer.read(bmp, Settings.current.ocrLanguage)
                 when (ResultParser.classify(boxes)) {
                     ScreenKind.RESULT -> {
-                        val parsed = ResultParser.parseResult(boxes, bmp.height)
+                        val parsed = ResultPipeline.withBetterTitle(ResultParser.parseResult(boxes, bmp.height), bmp, boxes)
                         when (val o = withContext(Dispatchers.IO) { ResultPipeline.handle(context, parsed, bmp, Source.IMPORT) }) {
                             is ResultPipeline.Outcome.NeedsReview -> { onOpen(Route.Edit(o.record.id)); null }
                             is ResultPipeline.Outcome.Duplicate -> "이미 저장된 결과예요"

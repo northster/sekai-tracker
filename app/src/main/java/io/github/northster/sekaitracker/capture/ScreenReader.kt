@@ -85,7 +85,7 @@ object ScreenReader {
             }
             when (ResultParser.classify(boxes)) {
                 ScreenKind.RESULT -> {
-                    val parsed = ResultParser.parseResult(boxes, crop.height)
+                    val parsed = ResultPipeline.withBetterTitle(ResultParser.parseResult(boxes, crop.height), crop, boxes)
                     val outcome = ResultPipeline.handle(context, parsed, crop, if (force) Source.BUTTON else Source.AUTO)
                     status.value = "${time()} 결과 화면: " + when (outcome) {
                         is ResultPipeline.Outcome.Saved -> "저장함 (${outcome.record.title})"

@@ -130,6 +130,16 @@ object RecordDb {
             }.toMap()
         }
 
+    /** songs from the song select screen with this level on this difficulty */
+    fun songsAt(difficulty: Difficulty, level: Int): List<String> =
+        songsRaw().filter { (_, levels) -> levels.split(';').any { it == "${difficulty.name}=$level" } }.keys.sorted()
+
+    /** titles played lately, newest first */
+    fun recentTitles(limit: Int): List<String> = helper.readableDatabase.rawQuery(
+        "SELECT title FROM records WHERE pending = 0 AND title != '' GROUP BY title ORDER BY MAX(played_at) DESC LIMIT ?",
+        arrayOf(limit.toString()),
+    ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+
     fun songCount(): Int = helper.readableDatabase.rawQuery("SELECT COUNT(*) FROM songs", null).use { it.moveToFirst(); it.getInt(0) }
 
     fun clearSongs() { helper.writableDatabase.delete("songs", null, null); notifyChanged() }

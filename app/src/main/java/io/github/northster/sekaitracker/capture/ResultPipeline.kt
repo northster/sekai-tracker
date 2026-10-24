@@ -17,9 +17,12 @@ import io.github.northster.sekaitracker.data.ReviewMode
 import io.github.northster.sekaitracker.data.Settings
 import io.github.northster.sekaitracker.data.Source
 import io.github.northster.sekaitracker.data.Stats
+import io.github.northster.sekaitracker.ocr.OcrBox
 import io.github.northster.sekaitracker.ocr.ParsedResult
 import io.github.northster.sekaitracker.ocr.ParsedSongSelect
 import io.github.northster.sekaitracker.ocr.TitleMatcher
+import io.github.northster.sekaitracker.ocr.TitleRetry
+import io.github.northster.sekaitracker.ocr.ResultParser.TITLE_MISSING
 import io.github.northster.sekaitracker.overlay.ResultOverlay
 import io.github.northster.sekaitracker.ui.MainActivity
 import java.io.File
@@ -55,12 +58,21 @@ object ResultPipeline {
         .mapNotNull { Stats.forChart(it, Settings.current.weights) }
         .sortedBy { it.difficulty?.ordinal ?: Int.MAX_VALUE }
 
+    /**
+     * When the title was not read or is not a song seen before, reads the title area again enlarged and uses that.
+     * Done before [handle], so missing titles rarely need the review screen.
+     */
+    suspend fun withBetterTitle(parsed: ParsedResult, bitmap: Bitmap, boxes: List<OcrBox>): ParsedResult {
+        if (parsed.title.isNotBlank() && TitleMatcher.match(parsed.title, RecordDb.titles(), RecordDb.aliases()).known) return parsed
+        val again = runCatching { TitleRetry.read(bitmap, boxes, Settings.current.ocrLanguage) }.getOrNull() ?: return parsed
+        return parsed.copy(title = again, issues = parsed.issues - TITLE_MISSING)
+    }
+
     /** builds the record from OCR, without saving it */
     fun toRecord(parsed: ParsedResult, source: Source, now: Long = System.currentTimeMillis()): PlayRecord {
         val selected = selectedSong(now)
         val match = TitleMatcher.match(parsed.title, RecordDb.titles(), RecordDb.aliases(), selected)
         val issues = parsed.issues.toMutableList()
-        if (!match.known && match.title.isNotBlank() && Settings.current.reviewNewSongs) issues += "처음 보는 곡 이름: 맞는지 확인"
         val level = parsed.level ?: parsed.difficulty?.let { RecordDb.songLevels(match.title)[it] }
         return PlayRecord(
             playedAt = now,

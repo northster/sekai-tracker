@@ -167,7 +167,6 @@ fun SettingsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
 
         Section("저장 전 확인")
         Choices(ReviewMode.entries, s.reviewMode, { it.label }) { v -> Settings.update { it.copy(reviewMode = v) } }
-        Toggle("처음 보는 곡은 확인", "곡 이름을 한 번 고쳐 두면 다음부터는 자동으로 맞춰져요", s.reviewNewSongs) { v -> Settings.update { it.copy(reviewNewSongs = v) } }
         Toggle("인식한 화면 이미지 보관", "기록마다 결과 화면 사진을 앱 안에 남겨요 (확인이 필요한 기록은 항상 보관)", s.keepImages) { v -> Settings.update { it.copy(keepImages = v) } }
 
         Section("데이터")
