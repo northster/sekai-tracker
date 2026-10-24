@@ -31,14 +31,16 @@ object Recognizer {
     suspend fun read(bitmap: Bitmap, lang: OcrLanguage): List<OcrBox> {
         val text = get(lang).process(InputImage.fromBitmap(bitmap, 0)).await()
         return text.textBlocks.flatMap { block -> block.lines }.flatMap { line ->
-            // keep titles as whole lines, but split lines that run labels and numbers together ("PERFECT 1166 COMBO 1187")
-            val pieces = if (line.elements.size > 1 && line.elements.any { TextNorm.labelLetters(it.text) in splitWords })
+            // keep titles as whole lines, but split lines that run labels or numbers together ("EASY NORMAL HARD", "7 12 18")
+            val pieces = if (line.elements.size > 1 && (line.elements.any { TextNorm.labelLetters(it.text) in splitWords } ||
+                    line.elements.all { TextNorm.parseNumber(it.text) != null }))
                 line.elements.map { it.text to it.boundingBox } else listOf(line.text to line.boundingBox)
             pieces.mapNotNull { (t, r) -> r?.let { OcrBox(t, it.left, it.top, it.right, it.bottom) } }
         }
     }
 
-    private val splitWords = setOf("PERFECT", "GREAT", "GOOD", "BAD", "MISS", "COMBO", "LATE", "FAST", "FLICK")
+    private val splitWords = setOf("PERFECT", "GREAT", "GOOD", "BAD", "MISS", "COMBO", "LATE", "FAST", "FLICK",
+        "EASY", "NORMAL", "HARD", "EXPERT", "MASTER", "APPEND")
 
     @Synchronized
     fun release() { recognizer?.close(); recognizer = null; language = null }

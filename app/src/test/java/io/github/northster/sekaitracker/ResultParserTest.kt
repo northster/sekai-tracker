@@ -119,6 +119,27 @@ class ResultParserTest {
         )))
     }
 
+    @Test fun songSelectWithMergedLines() {
+        // screenshots/song_select_2.jpg as ML Kit may return it: difficulty names and levels each as one line
+        val boxes = load("song_select2_merged.tsv")
+        assertEquals(ScreenKind.SONG_SELECT, ResultParser.classify(boxes))
+        val s = ResultParser.parseSongSelect(boxes, 1248)!!
+        assertEquals("オブソミート", s.title)
+        assertEquals(
+            mapOf(Difficulty.EASY to 7, Difficulty.NORMAL to 12, Difficulty.HARD to 18, Difficulty.EXPERT to 26, Difficulty.MASTER to 30),
+            s.levels,
+        )
+    }
+
+    @Test fun resultWithMergedRow() {
+        val boxes = load("result_mlkit_like.tsv").filterNot { it.text == "PERFECT" || it.text == "1166" || it.text == "COMBO" || it.text == "1187" } +
+            OcrBox("PERFECT 1166 COMBO 1187", 240, 680, 1016, 733)
+        val r = ResultParser.parseResult(boxes, 1248)
+        assertEquals(1166, r.perfect)
+        assertEquals(1187, r.combo)
+        assertTrue(r.issues.toString(), r.isConfident)
+    }
+
     @Test fun livePrepareScreen() {
         val boxes = load("live_prepare_rapidocr.tsv")
         assertEquals(ScreenKind.LIVE_PREPARE, ResultParser.classify(boxes))

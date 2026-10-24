@@ -9,6 +9,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import io.github.northster.sekaitracker.capture.ScreenReader
 import io.github.northster.sekaitracker.data.Difficulty
 import io.github.northster.sekaitracker.data.Settings
 import io.github.northster.sekaitracker.ocr.OcrBox
@@ -50,7 +52,7 @@ import kotlinx.coroutines.withContext
  * Runs the on-device OCR on the bundled sample result screen (screenshots/result.jpg) and compares every field with the
  * known values, or on any picked screenshot to see what is read. Nothing is saved.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun OcrTestScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -106,13 +108,23 @@ fun OcrTestScreen(onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
         TopAppBar(title = { Text("인식 테스트") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "뒤로") } })
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = !busy, onClick = {
                 test({ withContext(Dispatchers.IO) { context.assets.open("samples/result_master.jpg").use { BitmapFactory.decodeStream(it) } } }, SAMPLE)
             }) { Text("샘플 결과 화면") }
             OutlinedButton(enabled = !busy, onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                 Text("이미지 고르기")
             }
+            OutlinedButton(enabled = !busy, onClick = {
+                val boxes = ScreenReader.lastRead
+                raw = boxes
+                val kind = ResultParser.classify(boxes)
+                lines = listOf(
+                    (if (boxes.isEmpty()) "아직 버튼으로 읽은 화면이 없어요" else "마지막으로 버튼을 눌렀을 때 읽은 글자 ${boxes.size}줄 · 화면: ${kindLabel(kind)}") to null,
+                ) + (if (kind == ScreenKind.SONG_SELECT) ResultParser.parseSongSelect(boxes, boxes.maxOf { it.bottom }).let { s ->
+                    listOf("곡: ${s?.title.orEmpty()}" to null) + s?.levels.orEmpty().map { (d, l) -> "${d.label}: $l" to null }
+                } else emptyList())
+            }) { Text("마지막 캡처") }
         }
         Text("인식 언어: ${Settings.current.ocrLanguage.label} · 저장하지 않아요", Modifier.padding(16.dp, 4.dp), style = MaterialTheme.typography.bodySmall)
         LazyColumn(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {

@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Rect
 import io.github.northster.sekaitracker.data.Settings
 import io.github.northster.sekaitracker.data.Source
+import io.github.northster.sekaitracker.ocr.OcrBox
 import io.github.northster.sekaitracker.ocr.Recognizer
 import io.github.northster.sekaitracker.ocr.ResultParser
 import io.github.northster.sekaitracker.ocr.ScreenKind
@@ -33,6 +34,10 @@ object ScreenReader {
     private val gate = FrameGate()
     /** song whose best records were shown last, so auto mode does not show them again for the same song */
     private var lastShownSong: String? = null
+
+    /** text read from the last captured screen, for the OCR test screen */
+    @Volatile var lastRead: List<OcrBox> = emptyList()
+        private set
 
     /** last thing that was seen, shown in the app */
     val status = MutableStateFlow("꺼짐")
@@ -83,6 +88,7 @@ object ScreenReader {
                 status.value = "${time()} 글자 인식 실패: ${it.message}"
                 return
             }
+            lastRead = boxes
             when (ResultParser.classify(boxes)) {
                 ScreenKind.RESULT -> {
                     val parsed = ResultPipeline.withBetterTitle(ResultParser.parseResult(boxes, crop.height), crop, boxes)

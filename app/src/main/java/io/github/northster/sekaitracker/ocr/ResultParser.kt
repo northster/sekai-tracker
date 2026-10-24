@@ -45,7 +45,8 @@ object ResultParser {
     private val levelRegex = Regex("""[Ll][VvＶｖ][.．。,]?\s*([0-9OoIl]{1,2})""")
     private val livePrepareText = Regex("""総合力|総合|종합력|おすすめ編成|추천\s*편성""")
 
-    fun classify(boxes: List<OcrBox>): ScreenKind {
+    fun classify(rawBoxes: List<OcrBox>): ScreenKind {
+        val boxes = splitTokens(rawBoxes)
         val judgments = judgmentLabels.count { label -> boxes.any { isJudgmentLabel(it, label) } }
         if (judgments >= 4) return ScreenKind.RESULT
         val difficulties = Difficulty.entries.count { d -> boxes.any { TextNorm.matchesLabel(it.text, d.label) } }
@@ -71,25 +72,24 @@ object ResultParser {
 
     private fun isNumeric(box: OcrBox) = TextNorm.parseNumber(box.text) != null
 
+    private val knownWords = Difficulty.entries.map { it.label }.toSet() +
+        setOf("PERFECT", "GREAT", "GOOD", "BAD", "MISS", "COMBO", "LATE", "FAST", "FLICK", "AUTO")
+
     /**
-     * Joins number pieces written next to each other on one row (a count split in two boxes, "00" + "21").
+     * ML Kit sometimes returns words on one row as a single line ("EASY NORMAL HARD EXPERT MASTER", "7 12 18 26 30",
+     * "PERFECT 1166"). Lines made only of labels and numbers are cut into one box per word, placed by character position;
+     * titles and other text stay whole.
      */
-    internal fun mergeNumberPieces(boxes: List<OcrBox>): List<OcrBox> {
-        val numbers = boxes.filter(::isNumeric).sortedBy { it.left }.toMutableList()
-        val others = boxes.filterNot(::isNumeric)
-        val merged = mutableListOf<OcrBox>()
-        while (numbers.isNotEmpty()) {
-            var cur = numbers.removeAt(0)
-            while (true) {
-                val next = numbers.firstOrNull { it.sameRow(cur) && it.left >= cur.right - cur.height * 0.2f &&
-                    it.left - cur.right < 0.6f * maxOf(cur.height, it.height) &&
-                    abs(it.height - cur.height) < 0.35f * maxOf(cur.height, it.height) } ?: break
-                numbers.remove(next)
-                cur = OcrBox(cur.text.trim() + next.text.trim(), cur.left, minOf(cur.top, next.top), next.right, maxOf(cur.bottom, next.bottom))
-            }
-            merged += cur
+    fun splitTokens(boxes: List<OcrBox>): List<OcrBox> = boxes.flatMap { b ->
+        val tokens = b.text.trim().split(Regex("""\s+"""))
+        if (tokens.size < 2 || !tokens.all { t -> TextNorm.labelLetters(t) in knownWords || TextNorm.parseNumber(t) != null }) return@flatMap listOf(b)
+        val total = b.text.trim().length.toFloat()
+        var offset = 0
+        tokens.map { t ->
+            val start = b.text.trim().indexOf(t, offset)
+            offset = start + t.length
+            OcrBox(t, b.left + (b.width * start / total).toInt(), b.top, b.left + (b.width * offset / total).toInt(), b.bottom)
         }
-        return others + merged
     }
 
     /** nearest number to the right of the label on the same row, without another label in between */
@@ -109,7 +109,7 @@ object ResultParser {
         ?.let { TextNorm.parseNumber(it.text) }
 
     fun parseResult(rawBoxes: List<OcrBox>, frameHeight: Int): ParsedResult {
-        val boxes = mergeNumberPieces(rawBoxes)
+        val boxes = splitTokens(rawBoxes)
         val numbers = boxes.filter(::isNumeric)
         val issues = mutableListOf<String>()
         val notes = mutableListOf<String>()
@@ -190,7 +190,8 @@ object ResultParser {
      * Where the song title is on the result screen, as left, top, right, bottom: above the difficulty badge, or the top
      * left corner when the badge was not read. Used to read the title again, enlarged, when the first OCR missed it.
      */
-    fun titleRegion(boxes: List<OcrBox>, width: Int, height: Int): IntArray {
+    fun titleRegion(rawBoxes: List<OcrBox>, width: Int, height: Int): IntArray {
+        val boxes = splitTokens(rawBoxes)
         val diff = boxes.filter { b -> Difficulty.entries.any { TextNorm.matchesLabel(b.text, it.label) } }.minByOrNull { it.top }
         val r = if (diff != null) intArrayOf(
             (diff.left - diff.width * 0.5f).toInt(), (diff.top - diff.height * 2.6f).toInt(),
@@ -213,7 +214,8 @@ object ResultParser {
      * Song select screen (screenshots/song_select.jpg): the selected song's panel on the right shows the title above the
      * five difficulty circles with their levels, and the difficulty names under the circles.
      */
-    fun parseSongSelect(boxes: List<OcrBox>, frameHeight: Int): ParsedSongSelect? {
+    fun parseSongSelect(rawBoxes: List<OcrBox>, frameHeight: Int): ParsedSongSelect? {
+        val boxes = splitTokens(rawBoxes)
         val labels = Difficulty.entries.mapNotNull { d ->
             boxes.filter { TextNorm.matchesLabel(it.text, d.label) }.maxByOrNull { it.left }?.let { d to it }
         }.toMap()
@@ -240,5 +242,5 @@ object ResultParser {
 
     /** the difficulty shown on the live prepare screen */
     fun parseLivePrepare(boxes: List<OcrBox>): Difficulty? =
-        boxes.firstNotNullOfOrNull { b -> Difficulty.entries.firstOrNull { TextNorm.matchesLabel(b.text, it.label) } }
+        splitTokens(boxes).firstNotNullOfOrNull { b -> Difficulty.entries.firstOrNull { TextNorm.matchesLabel(b.text, it.label) } }
 }
