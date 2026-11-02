@@ -29,7 +29,7 @@ import java.util.Locale
  */
 object ResultOverlay {
     private val main = Handler(Looper.getMainLooper())
-    private var view: View? = null
+    @Volatile private var view: View? = null
     private val hideRunnable = Runnable { hide() }
 
     private fun pct(v: Double?) = v?.let { String.format(Locale.US, "%.2f%%", it) } ?: "-"
@@ -76,7 +76,7 @@ object ResultOverlay {
     /** a mark next to one judgment count on the result screen, in screen pixels */
     class DeltaMark(val x: Int, val y: Int, val height: Int, val delta: Int, val higherIsBetter: Boolean)
 
-    private val deltaViews = mutableListOf<View>()
+    private val deltaViews = java.util.concurrent.CopyOnWriteArrayList<View>()
 
     /** "-8" / "+3" / "±0" right of each judgment count: this play compared with the previous best play */
     fun showDeltas(context: Context, marks: List<DeltaMark>) {

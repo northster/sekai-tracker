@@ -167,7 +167,8 @@ class CaptureService : Service() {
                     }
                     CaptureButton.unhide("game")
                 }
-                if (s.autoDetect) ScreenReader.readIfNew(this@CaptureService) { grabFrame(800) }
+                // our own result box would be in the picture and look like a new screen: wait until it is gone
+                if (s.autoDetect && !ResultOverlay.isShowing) ScreenReader.readIfNew(this@CaptureService) { grabFrame(800) }
             }
         }
     }

@@ -109,7 +109,8 @@ class SekaiAccessibilityService : AccessibilityService() {
             val power = getSystemService(PowerManager::class.java)
             while (isActive) {
                 delay(Settings.current.intervalMs)
-                if (!power.isInteractive) continue
+                // our own result box / "-8" marks would be in the picture and look like a new screen: wait until they are gone
+                if (!power.isInteractive || ResultOverlay.isShowing) continue
                 ScreenReader.readIfNew(this@SekaiAccessibilityService) { screenshot() }
             }
         }
