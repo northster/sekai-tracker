@@ -5,9 +5,14 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
+import io.github.northster.sekaitracker.data.JacketStore
+import io.github.northster.sekaitracker.data.PlayRecord
+import io.github.northster.sekaitracker.data.RecordDb
 import io.github.northster.sekaitracker.data.Settings
+import io.github.northster.sekaitracker.data.Stats
 import io.github.northster.sekaitracker.data.Source
 import io.github.northster.sekaitracker.ocr.OcrBox
+import io.github.northster.sekaitracker.ocr.ParsedResult
 import io.github.northster.sekaitracker.ocr.Recognizer
 import io.github.northster.sekaitracker.ocr.ResultParser
 import io.github.northster.sekaitracker.ocr.ScreenKind
@@ -27,8 +32,11 @@ import java.util.Locale
  * find the game picture, decide whether it is worth reading, OCR it, and save the result or show the best records.
  */
 object ScreenReader {
-    /** a screen picture; [width] / [height] may be smaller than the bitmap (row padding of capture buffers) */
-    class Frame(val bitmap: Bitmap, val width: Int, val height: Int, val recycleAfter: Boolean)
+    /**
+     * A screen picture; [width] / [height] may be smaller than the bitmap (row padding of capture buffers), [scale] is
+     * picture pixels per screen pixel (pictures are taken smaller than the screen).
+     */
+    class Frame(val bitmap: Bitmap, val width: Int, val height: Int, val recycleAfter: Boolean, val scale: Float)
 
     private val lock = Mutex()
     private val gate = FrameGate()
@@ -98,6 +106,13 @@ object ScreenReader {
                         is ResultPipeline.Outcome.NeedsReview -> "확인 필요 (${outcome.record.title.ifBlank { "?" }})"
                         is ResultPipeline.Outcome.Duplicate -> "이미 저장됨"
                     }
+                    val record = when (outcome) {
+                        is ResultPipeline.Outcome.Saved -> outcome.record
+                        is ResultPipeline.Outcome.NeedsReview -> outcome.record
+                        is ResultPipeline.Outcome.Duplicate -> outcome.record
+                    }
+                    JacketStore.saveFromResult(record.title, crop, boxes)
+                    showDeltas(context, record, parsed, content, frame.scale)
                 }
                 ScreenKind.SONG_SELECT -> {
                     val title = ResultParser.parseSongSelect(boxes, crop.height)?.let { ResultPipeline.onSongSelect(it) }
@@ -127,6 +142,24 @@ object ScreenReader {
         } finally {
             crop.recycle()
         }
+    }
+
+    /** "-8" next to each judgment count: this play against the previous best play of the same song and difficulty */
+    private fun showDeltas(context: Context, record: PlayRecord, parsed: ParsedResult, content: Rect, scale: Float) {
+        if (record.title.isBlank()) return
+        val best = Stats.compare(record, RecordDb.forChart(record.title, record.difficulty), Settings.current.weights).previousBestPlay ?: return
+        val d = Stats.deltas(record.judgments, best.judgments)
+        val marks = parsed.countBoxes.map { (label, box) ->
+            val delta = when (label) { "PERFECT" -> d.perfect; "GREAT" -> d.great; "GOOD" -> d.good; "BAD" -> d.bad; else -> d.miss }
+            ResultOverlay.DeltaMark(
+                x = ((content.left + box.right + box.height * 0.4f) / scale).toInt(),
+                y = ((content.top + box.top) / scale).toInt(),
+                height = (box.height / scale).toInt().coerceAtLeast(1),
+                delta = delta,
+                higherIsBetter = label == "PERFECT",
+            )
+        }
+        ResultOverlay.showDeltas(context, marks)
     }
 
     /** read the screen now with whatever is running: the accessibility service, the screen share, or open the app */

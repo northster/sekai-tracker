@@ -57,17 +57,67 @@ object ResultOverlay {
 
     /** song select: the best of every difficulty played so far */
     fun showSongBest(context: Context, title: String, charts: List<ChartStats>) {
-        val lines = listOf(title) + if (charts.isEmpty()) listOf("이 곡 기록 없음") else charts.map { chartLine(it) }
+        val lines = listOf(title) + if (charts.isEmpty()) listOf("이 곡 기록 없음") else charts.flatMap { chartLines(it) }
         show(context, lines, highlight = false, boldLine = -1)
     }
 
     /** live prepare: the best of the difficulty about to be played */
     fun showChartBest(context: Context, title: String, difficulty: Difficulty, chart: ChartStats?) {
-        show(context, listOf(title, chart?.let { chartLine(it) } ?: "${difficulty.label} · 기록 없음"), highlight = false)
+        show(context, listOf(title) + (chart?.let { chartLines(it) } ?: listOf("${difficulty.label} · 기록 없음")), highlight = false, boldLine = -1)
     }
 
-    private fun chartLine(c: ChartStats) = "${c.difficulty?.label ?: "?"}${c.level?.let { " $it" } ?: ""} · 최고 ${pct(c.bestAccuracy)}" +
-        (if (c.allPerfect) " AP" else if (c.fullCombo) " FC" else "") + " · ${c.plays}회"
+    /** best accuracy, then the judgments of that best play */
+    private fun chartLines(c: ChartStats) = listOfNotNull(
+        "${c.difficulty?.label ?: "?"}${c.level?.let { " $it" } ?: ""} · 최고 ${pct(c.bestAccuracy)}" +
+            (if (c.allPerfect) " AP" else if (c.fullCombo) " FC" else "") + " · ${c.plays}회",
+        c.best?.judgments?.let { j -> "   P ${j.perfect} · G ${j.great} · GD ${j.good} · B ${j.bad} · M ${j.miss}" },
+    )
+
+    /** a mark next to one judgment count on the result screen, in screen pixels */
+    class DeltaMark(val x: Int, val y: Int, val height: Int, val delta: Int, val higherIsBetter: Boolean)
+
+    private val deltaViews = mutableListOf<View>()
+
+    /** "-8" / "+3" / "±0" right of each judgment count: this play compared with the previous best play */
+    fun showDeltas(context: Context, marks: List<DeltaMark>) {
+        if (!Settings.current.overlayEnabled || marks.isEmpty()) return
+        main.post {
+            removeDeltas()
+            val host = OverlayWindows.host(context) ?: return@post
+            val app = host.context
+            val pad = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, app.resources.displayMetrics).toInt()
+            marks.forEach { m ->
+                val good = if (m.delta == 0) null else (m.delta > 0) == m.higherIsBetter
+                val label = TextView(app).apply {
+                    text = when { m.delta > 0 -> "+${m.delta}"; m.delta < 0 -> "${m.delta}"; else -> "±0" }
+                    setTextSize(TypedValue.COMPLEX_UNIT_PX, m.height * 0.62f)
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(when (good) { true -> Color.rgb(120, 235, 170); false -> Color.rgb(255, 120, 140); null -> Color.rgb(200, 200, 215) })
+                    setPadding(pad * 2, 0, pad * 2, 0)
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = GradientDrawable().apply { cornerRadius = pad * 2f; setColor(Color.argb(210, 30, 24, 54)) }
+                }
+                val params = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT, m.height, host.type,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT,
+                ).apply {
+                    alpha = 0.8f
+                    gravity = Gravity.TOP or Gravity.START
+                    x = m.x; y = m.y
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    title = "SekaiTrackerDelta"
+                }
+                runCatching { host.windowManager.addView(label, params); deltaViews += label }
+            }
+        }
+    }
+
+    private fun removeDeltas() {
+        deltaViews.forEach { v -> runCatching { v.context.getSystemService(WindowManager::class.java).removeView(v) } }
+        deltaViews.clear()
+    }
 
     fun showMessage(context: Context, text: String) = show(context, listOf(text), highlight = false, seconds = 2)
 
@@ -75,7 +125,7 @@ object ResultOverlay {
         val settings = Settings.current
         if (!settings.overlayEnabled) return
         main.post {
-            hide()
+            removeBox()
             val host = OverlayWindows.host(context) ?: return@post
             val app = host.context
             val wm = host.windowManager
@@ -116,14 +166,20 @@ object ResultOverlay {
                 title = "SekaiTrackerOverlay"
             }
             runCatching { wm.addView(box, params); view = box }
+            main.removeCallbacks(hideRunnable)
             main.postDelayed(hideRunnable, seconds * 1000L)
         }
     }
 
-    val isShowing get() = view != null
+    val isShowing get() = view != null || deltaViews.isNotEmpty()
 
     fun hide() {
         main.removeCallbacks(hideRunnable)
+        removeDeltas()
+        removeBox()
+    }
+
+    private fun removeBox() {
         val v = view ?: return
         view = null
         runCatching { v.context.getSystemService(WindowManager::class.java).removeView(v) }

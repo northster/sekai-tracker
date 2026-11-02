@@ -140,6 +140,19 @@ class ResultParserTest {
         assertTrue(r.issues.toString(), r.isConfident)
     }
 
+    @Test fun jacketAndCountPositions() {
+        // jacket frame on screenshots/result.jpg: 226..363 x 21..158
+        for (name in listOf("result_rapidocr.tsv", "result_mlkit_like.tsv")) {
+            val r = ResultParser.jacketRegion(load(name), 1972, 1248)
+            assertTrue("$name ${r.toList()}", r[0] in 226..245 && r[1] in 21..40 && r[2] in 344..363 && r[3] in 139..158)
+        }
+        val fallback = ResultParser.jacketRegion(emptyList(), 1972, 1248)
+        assertTrue(fallback.toList().toString(), fallback[0] in 226..245 && fallback[1] in 21..40 && fallback[2] in 344..363 && fallback[3] in 139..158)
+        val r = ResultParser.parseResult(load("result_mlkit_like.tsv"), 1248)
+        assertEquals(OcrBox("1166", 475, 684, 578, 722), r.countBoxes["PERFECT"])
+        assertEquals(5, r.countBoxes.size)
+    }
+
     @Test fun livePrepareScreen() {
         val boxes = load("live_prepare_rapidocr.tsv")
         assertEquals(ScreenKind.LIVE_PREPARE, ResultParser.classify(boxes))

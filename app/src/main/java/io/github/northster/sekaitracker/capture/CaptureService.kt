@@ -62,6 +62,8 @@ class CaptureService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var width = 0
+    /** capture pixels per screen pixel */
+    private var captureScale = 1f
     private var height = 0
     private var surfaceAttached = false
     /** set when detaching the surface does not work on this device (no frame arrives after attaching) */
@@ -128,8 +130,10 @@ class CaptureService : Service() {
             override fun onCapturedContentResize(width: Int, height: Int) { handler.post { resizeTo(width to height) } }
         }, handler)
         projection = p
-        val (w, h) = scaled(screenSize())
+        val screen = screenSize()
+        val (w, h) = scaled(screen)
         width = w; height = h
+        captureScale = w.toFloat() / screen.first
         val r = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
         reader = r
         keepAttached = Settings.current.autoDetect && !Settings.current.pauseMirroring
@@ -175,7 +179,7 @@ class CaptureService : Service() {
 
     /** one frame as the shared reader wants it; the bitmap is reused for the next frame, so it is not recycled */
     private suspend fun grabFrame(waitMs: Long): ScreenReader.Frame? =
-        grabBitmap(waitMs)?.let { ScreenReader.Frame(it, width, height, recycleAfter = false) }
+        grabBitmap(waitMs)?.let { ScreenReader.Frame(it, width, height, recycleAfter = false, scale = captureScale) }
 
     private fun screenSize(): Pair<Int, Int> {
         val display = getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
@@ -197,6 +201,7 @@ class CaptureService : Service() {
         val (w, h) = scaled(size)
         if (w == width && h == height) return
         width = w; height = h
+        captureScale = w.toFloat() / size.first
         val old = reader
         val r = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
         reader = r

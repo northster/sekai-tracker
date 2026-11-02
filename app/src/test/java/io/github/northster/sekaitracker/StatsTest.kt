@@ -34,7 +34,8 @@ class StatsTest {
         val m = charts.first { it.title == "メモリア" }
         assertEquals(3, m.plays)
         assertEquals(100.0, m.bestAccuracy!!, 1e-9)
-        assertEquals((97.0 + 98.5 + 100.0) / 3, m.averageAccuracy!!, 1e-9)
+        assertEquals(3L, m.best!!.id)
+        assertEquals(Judgments(-10, 10, 0, 0, 0), Stats.deltas(records[0].judgments, m.best!!.judgments))
         assertTrue(m.allPerfect)
 
         val cmp = Stats.compare(records[2], records.take(2), w)

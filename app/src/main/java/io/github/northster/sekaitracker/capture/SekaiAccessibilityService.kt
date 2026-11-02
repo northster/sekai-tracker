@@ -132,9 +132,9 @@ class SekaiAccessibilityService : AccessibilityService() {
                     val soft = hw?.copy(Bitmap.Config.ARGB_8888, false)
                     hw?.recycle()
                     buffer.close()
-                    soft?.let { scaled(it) }
+                    soft?.let { s -> val fullWidth = s.width; scaled(s).let { it to it.width.toFloat() / fullWidth } }
                 }.getOrNull()
-                if (cont.isActive) cont.resume(frame?.let { ScreenReader.Frame(it, it.width, it.height, recycleAfter = true) })
+                if (cont.isActive) cont.resume(frame?.let { (b, scale) -> ScreenReader.Frame(b, b.width, b.height, recycleAfter = true, scale = scale) })
             }
 
             override fun onFailure(errorCode: Int) {

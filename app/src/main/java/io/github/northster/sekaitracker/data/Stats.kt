@@ -7,37 +7,41 @@ data class ChartStats(
     val level: Int?,
     val plays: Int,
     val bestAccuracy: Double?,
-    val averageAccuracy: Double?,
-    /** average of the last [RECENT] plays minus the average of the plays before them, null without enough plays */
-    val recentTrend: Double?,
+    /** the play with the best accuracy */
+    val best: PlayRecord?,
     val fullCombo: Boolean,
     val allPerfect: Boolean,
     val lastPlayedAt: Long,
-) {
-    companion object { const val RECENT = 5 }
-}
+)
 
 object Stats {
     fun forChart(records: List<PlayRecord>, weights: Weights): ChartStats? {
         val saved = records.filterNot { it.pending }.sortedBy { it.playedAt }
         val first = saved.firstOrNull() ?: return null
-        val acc = saved.mapNotNull { weights.accuracy(it.judgments) }
-        val trend = if (acc.size > ChartStats.RECENT) {
-            acc.takeLast(ChartStats.RECENT).average() - acc.dropLast(ChartStats.RECENT).average()
-        } else if (acc.size >= 2) acc.last() - acc.dropLast(1).average() else null
+        val best = bestPlay(saved, weights)
         return ChartStats(
             title = first.title,
             difficulty = first.difficulty,
             level = saved.mapNotNull { it.level }.lastOrNull(),
             plays = saved.size,
-            bestAccuracy = acc.maxOrNull(),
-            averageAccuracy = acc.takeIf { it.isNotEmpty() }?.average(),
-            recentTrend = trend,
+            bestAccuracy = best?.let { weights.accuracy(it.judgments) },
+            best = best,
             fullCombo = saved.any { it.fullCombo },
             allPerfect = saved.any { it.allPerfect },
             lastPlayedAt = saved.last().playedAt,
         )
     }
+
+    /** the play with the best accuracy; on a tie the earlier one */
+    fun bestPlay(records: List<PlayRecord>, weights: Weights): PlayRecord? = records.filterNot { it.pending }
+        .filter { weights.accuracy(it.judgments) != null }
+        .sortedBy { it.playedAt }
+        .maxByOrNull { weights.accuracy(it.judgments)!! }
+
+    /** this play's counts minus the previous best play's (PERFECT -8 = eight fewer PERFECTs than the best) */
+    fun deltas(play: Judgments, best: Judgments) = Judgments(
+        play.perfect - best.perfect, play.great - best.great, play.good - best.good, play.bad - best.bad, play.miss - best.miss,
+    )
 
     /** one entry per song + difficulty, most recently played first */
     fun allCharts(records: List<PlayRecord>, weights: Weights): List<ChartStats> = records.filterNot { it.pending }
@@ -46,16 +50,18 @@ object Stats {
         .sortedByDescending { it.lastPlayedAt }
 
     /** what the overlay shows after a play */
-    data class Comparison(val accuracy: Double?, val previousBest: Double?, val newBest: Boolean)
+    data class Comparison(val accuracy: Double?, val previousBest: Double?, val newBest: Boolean, val previousBestPlay: PlayRecord?)
 
     fun compare(play: PlayRecord, earlier: List<PlayRecord>, weights: Weights): Comparison {
         val acc = weights.accuracy(play.judgments)
-        val prev = earlier.filter { !it.pending && it.id != play.id }
-        val prevBest = prev.mapNotNull { weights.accuracy(it.judgments) }.maxOrNull()
+        // the same play seen again (same numbers) is not its own previous best
+        val bestPlay = bestPlay(earlier.filter { it.id != play.id && it.signature != play.signature }, weights)
+        val prevBest = bestPlay?.let { weights.accuracy(it.judgments) }
         return Comparison(
             accuracy = acc,
             previousBest = prevBest,
             newBest = acc != null && (prevBest == null || acc > prevBest + 1e-9),
+            previousBestPlay = bestPlay,
         )
     }
 }

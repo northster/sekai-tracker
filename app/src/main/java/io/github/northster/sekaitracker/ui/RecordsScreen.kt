@@ -1,5 +1,11 @@
 package io.github.northster.sekaitracker.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +33,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -48,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.northster.sekaitracker.data.ChartStats
 import io.github.northster.sekaitracker.data.Difficulty
+import io.github.northster.sekaitracker.data.JacketStore
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.RecordDb
 import io.github.northster.sekaitracker.data.Settings
@@ -112,17 +121,17 @@ fun RecordsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
 private fun ChartRow(c: ChartStats, modifier: Modifier) {
     Card(modifier.fillMaxWidth()) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Jacket(c.title, 52.dp, Modifier.padding(end = 12.dp))
             Column(Modifier.weight(1f)) {
                 Text(c.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     DifficultyChip(c.difficulty, c.level)
-                    Text("${c.plays}회 · 평균 ${pct(c.averageAccuracy)}", style = MaterialTheme.typography.bodySmall)
+                    Text("${c.plays}회", style = MaterialTheme.typography.bodySmall)
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(pct(c.bestAccuracy), fontWeight = FontWeight.Bold)
                 Row {
-                    c.recentTrend?.let { Text(trend(it), style = MaterialTheme.typography.bodySmall) }
                     if (c.allPerfect) Text(" AP", color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
                     else if (c.fullCombo) Text(" FC", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
@@ -131,7 +140,6 @@ private fun ChartRow(c: ChartStats, modifier: Modifier) {
     }
 }
 
-private fun trend(v: Double) = (if (v >= 0) "▲" else "▼") + String.format(Locale.US, "%.2f", kotlin.math.abs(v))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,16 +162,26 @@ fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit,
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
-                Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                Jacket(title, 88.dp, Modifier.padding(end = 12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleLarge)
+                    DifficultyChip(difficulty, stats?.level)
+                }
                 IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, "곡 이름 고치기") }
             }
-            DifficultyChip(difficulty, stats?.level)
+            // sdvx.in has a page per chart, but its song numbers can not be looked up without internet: search there instead
+            val context = LocalContext.current
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { openChartSearch(context, title, difficulty) }) { Text("채보 보기 (sdvx.in)") }
+                TextButton(onClick = {
+                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("곡 이름", title))
+                    openUrl(context, "https://sdvx.in/prsk.php")
+                }) { Text("목록 열기 · 곡 이름 복사") }
+            }
         }
         if (stats != null) item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 StatBox("최고", pct(stats.bestAccuracy))
-                StatBox("평균", pct(stats.averageAccuracy))
-                StatBox("최근 추이", stats.recentTrend?.let { trend(it) + "%p" } ?: "-")
                 StatBox("플레이", "${stats.plays}회")
             }
             if (stats.allPerfect || stats.fullCombo)
@@ -191,7 +209,8 @@ fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit,
             },
             confirmButton = {
                 TextButton(enabled = text.isNotBlank(), onClick = {
-                    RecordDb.renameChart(title, difficulty, text.trim()); renaming = false; onRenamed(text.trim())
+                    RecordDb.renameChart(title, difficulty, text.trim()); JacketStore.copy(title, text.trim())
+                    renaming = false; onRenamed(text.trim())
                 }) { Text("바꾸기") }
             },
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("취소") } },
@@ -205,6 +224,17 @@ private fun StatBox(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     }
+}
+
+/** web search limited to the chart site, for this song (and difficulty) */
+private fun openChartSearch(context: Context, title: String, difficulty: Difficulty?) {
+    val query = "site:sdvx.in/prsk $title" + (difficulty?.let { " ${it.label}" } ?: "")
+    openUrl(context, "https://www.google.com/search?q=" + Uri.encode(query))
+}
+
+private fun openUrl(context: Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        .onFailure { Toast.makeText(context, "브라우저를 열 수 없어요", Toast.LENGTH_SHORT).show() }
 }
 
 /** plays in order, with a dashed line at the best value */

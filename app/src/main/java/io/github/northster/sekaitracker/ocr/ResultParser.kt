@@ -21,6 +21,8 @@ data class ParsedResult(
     val issues: List<String>,
     /** softer notes (estimated values), shown in the review screen but no reason to stop auto saving */
     val notes: List<String>,
+    /** where each judgment count was read (PERFECT..MISS), in the picture's pixels */
+    val countBoxes: Map<String, OcrBox> = emptyMap(),
 ) {
     val judgments: Judgments? get() =
         if (perfect != null && great != null && good != null && bad != null && miss != null) Judgments(perfect, great, good, bad, miss) else null
@@ -93,12 +95,15 @@ object ResultParser {
     }
 
     /** nearest number to the right of the label on the same row, without another label in between */
-    private fun numberRightOf(label: OcrBox, boxes: List<OcrBox>): Long? {
-        inlineNumber(label)?.let { return it }
+    private fun numberRightOf(label: OcrBox, boxes: List<OcrBox>): Long? = numberBoxRightOf(label, boxes)?.first
+
+    /** the number and the box it was read from (the label's own box when the number is in the same line) */
+    private fun numberBoxRightOf(label: OcrBox, boxes: List<OcrBox>): Pair<Long, OcrBox>? {
+        inlineNumber(label)?.let { return it to label }
         val row = boxes.filter { it !== label && it.sameRow(label) && it.left >= label.right - label.height * 0.3f }
             .sortedBy { it.left }
         val first = row.firstOrNull() ?: return null
-        return TextNorm.parseNumber(first.text)
+        return TextNorm.parseNumber(first.text)?.let { it to first }
     }
 
     /** number shown under a label (LATE / FAST counts sit in a bar below their labels) */
@@ -115,10 +120,11 @@ object ResultParser {
         val notes = mutableListOf<String>()
 
         // judgments: the left-most matching label for each (the banner and other text sit further right)
-        val counts = judgmentLabels.associateWith { label ->
+        val countReads = judgmentLabels.associateWith { label ->
             val box = boxes.filter { isJudgmentLabel(it, label) }.minByOrNull { it.left }
-            box?.let { numberRightOf(it, boxes) }?.toInt()?.takeIf { it in 0..9999 }
+            box?.let { numberBoxRightOf(it, boxes) }?.takeIf { it.first in 0..9999 }
         }
+        val counts = countReads.mapValues { it.value?.first?.toInt() }
         judgmentLabels.filter { counts[it] == null }.forEach { issues += "$it 개수를 읽지 못함" }
 
         // difficulty badge: the top-most difficulty word
@@ -172,6 +178,7 @@ object ResultParser {
             perfect = counts["PERFECT"], great = counts["GREAT"], good = counts["GOOD"], bad = counts["BAD"], miss = counts["MISS"],
             fast = fast, late = late, fullComboText = fullComboText, allPerfectText = allPerfectText,
             issues = issues, notes = notes,
+            countBoxes = countReads.mapNotNull { (k, v) -> v?.let { k to it.second } }.toMap(),
         )
     }
 
@@ -198,6 +205,26 @@ object ResultParser {
             (diff.left + diff.width * 5f).toInt(), (diff.top - diff.height * 0.05f).toInt(),
         ) else intArrayOf((width * 0.15f).toInt(), 0, (width * 0.6f).toInt(), (height * 0.085f).toInt())
         return intArrayOf(r[0].coerceIn(0, width), r[1].coerceIn(0, height), r[2].coerceIn(0, width), r[3].coerceIn(0, height))
+    }
+
+    /**
+     * The jacket square left of the title, as left, top, right, bottom (inside its colored frame). Measured on
+     * screenshots/result.jpg: frame 226..363 x 21..158 next to the "MASTER" text at 419..562 x 112..143, so it scales with
+     * the difficulty text; without that text, the same place relative to the picture size.
+     */
+    fun jacketRegion(rawBoxes: List<OcrBox>, width: Int, height: Int): IntArray {
+        val boxes = splitTokens(rawBoxes)
+        val diff = boxes.filter { b -> Difficulty.entries.any { TextNorm.matchesLabel(b.text, it.label) } }.minByOrNull { it.top }
+        val (l, t, size) = if (diff != null) {
+            val h = diff.height.toFloat()
+            val size = 4.42f * h
+            Triple(diff.left - 1.8f * h - size, diff.bottom + 0.48f * h - size, size)
+        } else Triple(width * 0.1146f, height * 0.0168f, height * 0.11f)
+        val inset = size * 0.06f
+        return intArrayOf(
+            (l + inset).toInt().coerceIn(0, width), (t + inset).toInt().coerceIn(0, height),
+            (l + size - inset).toInt().coerceIn(0, width), (t + size - inset).toInt().coerceIn(0, height),
+        )
     }
 
     /** the title from OCR of the enlarged title area: the tallest text line, pieces on its row joined */

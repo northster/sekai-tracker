@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.northster.sekaitracker.capture.ResultPipeline
 import io.github.northster.sekaitracker.data.Difficulty
+import io.github.northster.sekaitracker.data.JacketStore
 import io.github.northster.sekaitracker.data.Judgments
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.RecordDb
@@ -186,6 +187,7 @@ private fun EditForm(r: PlayRecord, onDone: () -> Unit) {
                 )
                 if (r.pending) ResultPipeline.confirm(updated) else {
                     if (updated.title != r.title && r.ocrTitle.isNotBlank()) RecordDb.addAlias(r.ocrTitle, updated.title)
+                    if (updated.title != r.title) JacketStore.copy(r.title, updated.title)
                     RecordDb.update(updated)
                 }
                 onDone()

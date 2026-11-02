@@ -46,6 +46,7 @@ import io.github.northster.sekaitracker.capture.CaptureService
 import io.github.northster.sekaitracker.capture.ResultPipeline
 import io.github.northster.sekaitracker.capture.ScreenReader
 import io.github.northster.sekaitracker.capture.SekaiAccessibilityService
+import io.github.northster.sekaitracker.data.JacketStore
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.RecordDb
 import io.github.northster.sekaitracker.data.Settings
@@ -83,7 +84,10 @@ fun HomeScreen(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit, onOp
                 when (ResultParser.classify(boxes)) {
                     ScreenKind.RESULT -> {
                         val parsed = ResultPipeline.withBetterTitle(ResultParser.parseResult(boxes, bmp.height), bmp, boxes)
-                        when (val o = withContext(Dispatchers.IO) { ResultPipeline.handle(context, parsed, bmp, Source.IMPORT) }) {
+                        val o = withContext(Dispatchers.IO) {
+                            ResultPipeline.handle(context, parsed, bmp, Source.IMPORT).also { JacketStore.saveFromResult(parsed.title, bmp, boxes) }
+                        }
+                        when (o) {
                             is ResultPipeline.Outcome.NeedsReview -> { onOpen(Route.Edit(o.record.id)); null }
                             is ResultPipeline.Outcome.Duplicate -> "이미 저장된 결과예요"
                             is ResultPipeline.Outcome.Saved -> "저장했어요"
@@ -185,6 +189,7 @@ fun RecordRow(r: PlayRecord, modifier: Modifier = Modifier, warning: String? = n
     val weights by Settings.flow.collectAsState()
     Card(modifier.fillMaxWidth()) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Jacket(r.title, 48.dp, Modifier.padding(end = 12.dp))
             Column(Modifier.weight(1f)) {
                 Text(r.title.ifBlank { "(곡 이름 없음)" }, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                 Row(verticalAlignment = Alignment.CenterVertically) {

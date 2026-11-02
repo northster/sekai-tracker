@@ -10,6 +10,7 @@ import androidx.core.app.NotificationManagerCompat
 import io.github.northster.sekaitracker.R
 import io.github.northster.sekaitracker.SekaiApp
 import io.github.northster.sekaitracker.data.ChartStats
+import io.github.northster.sekaitracker.data.JacketStore
 import io.github.northster.sekaitracker.data.Judgments
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.RecordDb
@@ -95,7 +96,9 @@ object ResultPipeline {
         val settings = Settings.current
         var record = toRecord(parsed, source)
         if (RecordDb.isDuplicate(record)) {
-            if (source != Source.AUTO) ResultOverlay.showMessage(context, "이미 저장된 결과예요")
+            // tapped again on a saved result: show how it compares, like right after saving
+            if (source != Source.AUTO) ResultOverlay.showResult(context, record,
+                Stats.compare(record, RecordDb.forChart(record.title, record.difficulty), settings.weights))
             return Outcome.Duplicate(record)
         }
         val unsure = record.pending || parsed.judgments == null
@@ -125,7 +128,10 @@ object ResultPipeline {
 
     /** the user checked a pending record in the review screen */
     fun confirm(record: PlayRecord) {
-        if (record.ocrTitle.isNotBlank() && record.title.isNotBlank()) RecordDb.addAlias(record.ocrTitle, record.title)
+        if (record.ocrTitle.isNotBlank() && record.title.isNotBlank()) {
+            RecordDb.addAlias(record.ocrTitle, record.title)
+            JacketStore.copy(record.ocrTitle, record.title)
+        }
         val keep = Settings.current.keepImages
         if (!keep) record.imagePath?.let { File(it).delete() }
         RecordDb.update(record.copy(pending = false, issues = "", imagePath = if (keep) record.imagePath else null))

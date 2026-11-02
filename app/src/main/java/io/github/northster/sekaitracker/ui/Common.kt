@@ -4,7 +4,12 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -20,10 +25,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.northster.sekaitracker.data.Difficulty
+import io.github.northster.sekaitracker.data.JacketStore
 import io.github.northster.sekaitracker.data.RecordDb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,6 +48,17 @@ fun SekaiTheme(content: @Composable () -> Unit) {
         if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else if (dark) darkColorScheme() else lightColorScheme()
     MaterialTheme(colorScheme = scheme) { Surface(color = MaterialTheme.colorScheme.background, content = content) }
+}
+
+/** the song's jacket cut from a result screen, or an empty tile until one was seen */
+@Composable
+fun Jacket(title: String, size: Dp, modifier: Modifier = Modifier) {
+    val version by JacketStore.changes.collectAsState()
+    val bitmap by produceState<Bitmap?>(null, title, version) { value = withContext(Dispatchers.IO) { JacketStore.load(title) } }
+    val shape = RoundedCornerShape(size / 10)
+    val b = bitmap
+    if (b != null) Image(b.asImageBitmap(), null, modifier.size(size).clip(shape))
+    else Box(modifier.size(size).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant))
 }
 
 /** reads from the database off the main thread, again after every write */
