@@ -26,13 +26,13 @@ data class AppSettings(
     /** with the accessibility service: show the button / start auto mode whenever the game is in front */
     val autoStart: Boolean = true,
     /** false: only the floating button, tile or notification reads the screen (no periodic capture at all) */
-    val autoDetect: Boolean = false,
+    val autoDetect: Boolean = true,
     /** small floating button that reads the screen when tapped */
-    val showButton: Boolean = true,
+    val showButton: Boolean = false,
     /** where the button was dragged to, in pixels from the left / top edge; -1 = not moved yet */
     val buttonX: Int = -1,
     val buttonY: Int = -1,
-    val intervalMs: Long = 1000,
+    val intervalMs: Long = 2000,
     val quality: CaptureQuality = CaptureQuality.NORMAL,
     /** detach the capture surface between checks so the screen is not mirrored all the time */
     val pauseMirroring: Boolean = true,
@@ -44,6 +44,8 @@ data class AppSettings(
     val reviewMode: ReviewMode = ReviewMode.WHEN_UNSURE,
     val ocrLanguage: OcrLanguage = OcrLanguage.JAPANESE,
     val keepImages: Boolean = false,
+    /** colors from the wallpaper (Android 12+) instead of the app's own teal theme */
+    val dynamicColor: Boolean = false,
 ) {
     companion object {
         /** Japanese, global, Korean and Taiwanese releases; editable in the settings */
@@ -69,11 +71,11 @@ object Settings {
             weights = Weights(dbl("w_perfect", d.weights.perfect), dbl("w_great", d.weights.great), dbl("w_good", d.weights.good),
                 dbl("w_bad", d.weights.bad), dbl("w_miss", d.weights.miss)),
             autoStart = prefs.getBoolean("auto_start", d.autoStart),
-            autoDetect = prefs.getBoolean("auto_mode", d.autoDetect),
-            showButton = prefs.getBoolean("show_button", d.showButton),
+            autoDetect = prefs.getBoolean("auto_detect_v2", d.autoDetect),
+            showButton = prefs.getBoolean("show_button_v2", d.showButton),
             buttonX = prefs.getInt("button_x", d.buttonX),
             buttonY = prefs.getInt("button_y", d.buttonY),
-            intervalMs = prefs.getLong("interval_ms", d.intervalMs),
+            intervalMs = prefs.getLong("interval_v2", d.intervalMs),
             quality = enumOr(prefs.getString("quality", null), d.quality),
             pauseMirroring = prefs.getBoolean("pause_mirroring", d.pauseMirroring),
             onlyInGame = prefs.getBoolean("only_in_game", d.onlyInGame),
@@ -85,6 +87,7 @@ object Settings {
             reviewMode = enumOr(prefs.getString("review_mode", null), d.reviewMode),
             ocrLanguage = enumOr(prefs.getString("ocr_language", null), d.ocrLanguage),
             keepImages = prefs.getBoolean("keep_images", d.keepImages),
+            dynamicColor = prefs.getBoolean("dynamic_color", d.dynamicColor),
         )
     }
 
@@ -93,14 +96,14 @@ object Settings {
         prefs.edit {
             putFloat("w_perfect", s.weights.perfect.toFloat()); putFloat("w_great", s.weights.great.toFloat())
             putFloat("w_good", s.weights.good.toFloat()); putFloat("w_bad", s.weights.bad.toFloat()); putFloat("w_miss", s.weights.miss.toFloat())
-            putBoolean("auto_start", s.autoStart); putBoolean("auto_mode", s.autoDetect); putBoolean("show_button", s.showButton)
+            putBoolean("auto_start", s.autoStart); putBoolean("auto_detect_v2", s.autoDetect); putBoolean("show_button_v2", s.showButton)
             putInt("button_x", s.buttonX); putInt("button_y", s.buttonY)
-            putLong("interval_ms", s.intervalMs); putString("quality", s.quality.name)
+            putLong("interval_v2", s.intervalMs); putString("quality", s.quality.name)
             putBoolean("pause_mirroring", s.pauseMirroring); putBoolean("only_in_game", s.onlyInGame)
             putString("game_packages", s.gamePackages.joinToString(","))
             putBoolean("overlay", s.overlayEnabled); putString("overlay_corner", s.overlayCorner.name); putInt("overlay_seconds", s.overlaySeconds)
             putString("review_mode", s.reviewMode.name)
-            putString("ocr_language", s.ocrLanguage.name); putBoolean("keep_images", s.keepImages)
+            putString("ocr_language", s.ocrLanguage.name); putBoolean("keep_images", s.keepImages); putBoolean("dynamic_color", s.dynamicColor)
         }
         state.value = s
     }

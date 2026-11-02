@@ -8,6 +8,16 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -92,12 +102,19 @@ fun RecordsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.then(if (wide) Modifier.width(listWidth) else Modifier.fillMaxWidth()).fillMaxHeight().padding(horizontal = 16.dp)) {
                 Spacer(Modifier.height(16.dp))
-                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("곡 이름 검색") }, singleLine = true)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("기록", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text("${charts.size}곡 · ${all.size}플레이", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("곡 이름 검색") }, singleLine = true,
+                    shape = RoundedCornerShape(28.dp),
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, "지우기") } },
+                )
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Sort.entries.forEach { s -> FilterChip(selected = sort == s, onClick = { sort = s }, label = { Text(s.label) }) }
                 }
-                Text("${charts.size}곡 · ${all.size}플레이", style = MaterialTheme.typography.bodySmall)
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 4.dp)) {
                     items(charts, key = { "${it.title}|${it.difficulty}" }) { c ->
                         ChartRow(c, Modifier.clickable {
                             if (wide) selected = c.title to c.difficulty else onOpen(Route.Chart(c.title, c.difficulty))
@@ -119,23 +136,19 @@ fun RecordsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
 
 @Composable
 private fun ChartRow(c: ChartStats, modifier: Modifier) {
-    Card(modifier.fillMaxWidth()) {
+    Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Jacket(c.title, 52.dp, Modifier.padding(end = 12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(c.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+            Jacket(c.title, 60.dp, Modifier.padding(end = 12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(c.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     DifficultyChip(c.difficulty, c.level)
-                    Text("${c.plays}회", style = MaterialTheme.typography.bodySmall)
+                    Text("${c.plays}회", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                c.best?.let { JudgmentLine(it.judgments) }
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(pct(c.bestAccuracy), fontWeight = FontWeight.Bold)
-                Row {
-                    if (c.allPerfect) Text(" AP", color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
-                    else if (c.fullCombo) Text(" FC", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
-            }
+            AccuracyBadge(c.bestAccuracy, c.fullCombo, c.allPerfect, Modifier.padding(start = 8.dp))
         }
     }
 }
@@ -159,39 +172,59 @@ fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit,
     val stats = remember(records, settings.weights) { Stats.forChart(records, settings.weights) }
     var renaming by remember { mutableStateOf(false) }
 
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(
+        Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
-                Jacket(title, 88.dp, Modifier.padding(end = 12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleLarge)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Jacket(title, 104.dp, Modifier.padding(end = 16.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     DifficultyChip(difficulty, stats?.level)
                 }
                 IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, "곡 이름 고치기") }
             }
+        }
+        item {
             // sdvx.in has a page per chart, but its song numbers can not be looked up without internet: search there instead
             val context = LocalContext.current
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { openChartSearch(context, title, difficulty) }) { Text("채보 보기 (sdvx.in)") }
-                TextButton(onClick = {
+                FilledTonalButton(onClick = { openChartSearch(context, title, difficulty) }) {
+                    Icon(Icons.Default.Search, null, Modifier.size(18.dp)); Text("  채보 보기")
+                }
+                OutlinedButton(onClick = {
                     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("곡 이름", title))
                     openUrl(context, "https://sdvx.in/prsk.php")
-                }) { Text("목록 열기 · 곡 이름 복사") }
+                }) { Text("sdvx.in 목록 · 이름 복사") }
             }
         }
         if (stats != null) item {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                StatBox("최고", pct(stats.bestAccuracy))
-                StatBox("플레이", "${stats.plays}회")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatTile("최고 정확도", pct(stats.bestAccuracy), Modifier.weight(1.4f))
+                StatTile("플레이", "${stats.plays}회", Modifier.weight(1f))
+                StatTile("클리어", if (stats.allPerfect) "AP" else if (stats.fullCombo) "FC" else "-", Modifier.weight(1f))
             }
-            if (stats.allPerfect || stats.fullCombo)
-                Text(if (stats.allPerfect) "ALL PERFECT 달성" else "FULL COMBO 달성", style = MaterialTheme.typography.bodyMedium)
+        }
+        stats?.best?.let { best ->
+            item {
+                Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("최고 기록 판정", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        JudgmentLine(best.judgments)
+                        Text(dateTime(best.playedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+            }
         }
         item {
-            Text("정확도 추이", style = MaterialTheme.typography.titleSmall)
-            LineChart(records.map { settings.weights.accuracy(it.judgments) }, Modifier.fillMaxWidth().height(200.dp), percent = true)
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("정확도 추이", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    LineChart(records.map { settings.weights.accuracy(it.judgments) }, Modifier.fillMaxWidth().height(200.dp).padding(top = 8.dp), percent = true)
+                }
+            }
         }
-        item { Text("플레이 기록 (눌러서 수정)", style = MaterialTheme.typography.titleSmall) }
+        item { SectionHeader("플레이 기록") { Text("눌러서 수정", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
         items(records.reversed(), key = { it.id }) { r -> RecordRow(r, Modifier.clickable { onEdit(r.id) }) }
         item { Spacer(Modifier.height(16.dp)) }
     }
@@ -215,14 +248,6 @@ fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit,
             },
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("취소") } },
         )
-    }
-}
-
-@Composable
-private fun StatBox(label: String, value: String) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     }
 }
 
