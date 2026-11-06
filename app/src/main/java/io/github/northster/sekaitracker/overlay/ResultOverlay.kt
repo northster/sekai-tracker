@@ -17,6 +17,7 @@ import io.github.northster.sekaitracker.data.ChartStats
 import io.github.northster.sekaitracker.data.Difficulty
 import io.github.northster.sekaitracker.data.OverlayCorner
 import io.github.northster.sekaitracker.data.PlayRecord
+import io.github.northster.sekaitracker.data.RecordDb
 import io.github.northster.sekaitracker.data.Settings
 import io.github.northster.sekaitracker.data.Stats
 import java.util.Locale
@@ -30,12 +31,16 @@ import java.util.Locale
 object ResultOverlay {
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var view: View? = null
-    private val hideRunnable = Runnable { hide() }
+    /** the box goes after a few seconds; the "+3 / -8" marks stay until the result screen is left */
+    private val hideRunnable = Runnable { removeBox() }
+
+    /** "한글 제목 · 原題" when the Korean title is known */
+    private fun shown(title: String) = RecordDb.koTitle(title)?.let { "$it · $title" } ?: title
 
     private fun pct(v: Double?) = v?.let { String.format(Locale.US, "%.2f%%", it) } ?: "-"
 
     fun showResult(context: Context, record: PlayRecord, cmp: Stats.Comparison) {
-        val head = "${record.title} · ${record.difficulty?.label ?: "?"}${record.level?.let { " $it" } ?: ""}"
+        val head = "${shown(record.title)} · ${record.difficulty?.label ?: "?"}${record.level?.let { " $it" } ?: ""}"
         val best = when {
             cmp.previousBest == null -> "첫 기록"
             cmp.newBest -> "최고 기록 갱신! (이전 ${pct(cmp.previousBest)})"
@@ -48,7 +53,7 @@ object ResultOverlay {
 
     fun showReview(context: Context, record: PlayRecord, cmp: Stats.Comparison) {
         show(context, listOf(
-            record.title.ifBlank { "결과 인식" },
+            shown(record.title).ifBlank { "결과 인식" },
             "정확도 ${pct(cmp.accuracy)} (확인 전)",
             cmp.previousBest?.let { "이전 최고 ${pct(it)}" } ?: "이전 기록 없음",
             "확인 필요 · 알림을 눌러 수정",
@@ -57,13 +62,13 @@ object ResultOverlay {
 
     /** song select: the best of every difficulty played so far */
     fun showSongBest(context: Context, title: String, charts: List<ChartStats>) {
-        val lines = listOf(title) + if (charts.isEmpty()) listOf("이 곡 기록 없음") else charts.flatMap { chartLines(it) }
+        val lines = listOf(shown(title)) + if (charts.isEmpty()) listOf("이 곡 기록 없음") else charts.flatMap { chartLines(it) }
         show(context, lines, highlight = false, boldLine = -1)
     }
 
     /** live prepare: the best of the difficulty about to be played */
     fun showChartBest(context: Context, title: String, difficulty: Difficulty, chart: ChartStats?) {
-        show(context, listOf(title) + (chart?.let { chartLines(it) } ?: listOf("${difficulty.label} · 기록 없음")), highlight = false, boldLine = -1)
+        show(context, listOf(shown(title)) + (chart?.let { chartLines(it) } ?: listOf("${difficulty.label} · 기록 없음")), highlight = false, boldLine = -1)
     }
 
     /** best accuracy, then the judgments of that best play */
@@ -172,6 +177,7 @@ object ResultOverlay {
     }
 
     val isShowing get() = view != null || deltaViews.isNotEmpty()
+    val deltasShowing get() = deltaViews.isNotEmpty()
 
     fun hide() {
         main.removeCallbacks(hideRunnable)

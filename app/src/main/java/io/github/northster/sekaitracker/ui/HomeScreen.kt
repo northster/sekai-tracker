@@ -247,6 +247,7 @@ fun HomeScreen(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit, onOp
 @Composable
 fun RecordRow(r: PlayRecord, modifier: Modifier = Modifier, warning: String? = null) {
     val weights by Settings.flow.collectAsState()
+    val ko = rememberKoTitles()[r.title]
     Card(
         modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
@@ -256,8 +257,7 @@ fun RecordRow(r: PlayRecord, modifier: Modifier = Modifier, warning: String? = n
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Jacket(r.title, 56.dp, Modifier.padding(end = 12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(r.title.ifBlank { "(곡 이름 없음)" }, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                SongTitle(r.title, ko)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     DifficultyChip(r.difficulty, r.level)
                     Text(dateTime(r.playedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

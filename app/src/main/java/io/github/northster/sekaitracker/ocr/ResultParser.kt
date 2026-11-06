@@ -212,7 +212,7 @@ object ResultParser {
      * screenshots/result.jpg: frame 226..363 x 21..158 next to the "MASTER" text at 419..562 x 112..143, so it scales with
      * the difficulty text; without that text, the same place relative to the picture size.
      */
-    fun jacketRegion(rawBoxes: List<OcrBox>, width: Int, height: Int): IntArray {
+    fun jacketRegion(rawBoxes: List<OcrBox>, width: Int, height: Int, pixel: ((Int, Int) -> Int)? = null): IntArray {
         val boxes = splitTokens(rawBoxes)
         val diff = boxes.filter { b -> Difficulty.entries.any { TextNorm.matchesLabel(b.text, it.label) } }.minByOrNull { it.top }
         val (l, t, size) = if (diff != null) {
@@ -220,6 +220,13 @@ object ResultParser {
             val size = 4.42f * h
             Triple(diff.left - 1.8f * h - size, diff.bottom + 0.48f * h - size, size)
         } else Triple(width * 0.1146f, height * 0.0168f, height * 0.11f)
+        // with the picture: find the colored frame itself, the estimate above depends on how big OCR draws the text box
+        if (pixel != null) {
+            // stay left of the difficulty badge (it has the same color as the frame)
+            val rightLimit = diff?.let { (it.left - 1.2f * it.height).toInt() } ?: (l + size * 1.3f).toInt()
+            JacketFinder.refine(intArrayOf(l.toInt(), t.toInt(), (l + size).toInt(), (t + size).toInt()), width, height, rightLimit, pixel)
+                ?.let { return it }
+        }
         val inset = size * 0.06f
         return intArrayOf(
             (l + inset).toInt().coerceIn(0, width), (t + inset).toInt().coerceIn(0, height),
@@ -257,14 +264,31 @@ object ResultParser {
         val panelRight = labels.values.maxOf { it.right }
         val rowTop = (levels.keys.mapNotNull { d -> numbers.firstOrNull { b -> TextNorm.parseNumber(b.text)?.toInt() == levels[d] && b.left >= panelLeft } }
             .minOfOrNull { it.top } ?: labels.values.minOf { it.top }).toFloat()
-        val candidates = boxes.filter {
-            it.left >= panelLeft && it.right <= panelRight + it.height && it.bottom < rowTop && it.top > rowTop - frameHeight * 0.25f &&
-                !isNumeric(it) && TextNorm.titleKey(it.text).length >= 2 && !it.text.trim().startsWith("Vo", ignoreCase = true)
+        // title, composer and "Vo." lines sit left-aligned with the difficulty circles, stacked right above them; text in the
+        // jacket art or the rank badge is not aligned with them
+        val anchorX = labels.values.minOf { it.left }
+        val unit = labels.values.first().height.toFloat()
+        val lines = boxes.filter {
+            abs(it.left - anchorX) < unit * 2.5f && it.right <= panelRight + unit * 4 && it.bottom < rowTop &&
+                it.top > rowTop - frameHeight * 0.35f && !isNumeric(it) && TextNorm.titleKey(it.text).isNotEmpty()
+        }.sortedByDescending { it.bottom }
+        // walk up from the line closest to the levels while the lines follow each other closely
+        val stack = mutableListOf<OcrBox>()
+        for (line in lines) {
+            val above = stack.lastOrNull()
+            if (above == null) { if (rowTop - line.bottom < unit * 4) stack += line else break; continue }
+            if (line.bottom > above.top + above.height * 0.3f) continue // same row as a line already taken
+            if (above.top - line.bottom > maxOf(above.height, line.height) * 1.6f) break
+            stack += line
         }
-        if (candidates.isEmpty()) return ParsedSongSelect("", levels)
-        val maxH = candidates.maxOf { it.height }
-        val title = candidates.filter { it.height >= maxH * 0.85f }.minByOrNull { it.top }!!.text.trim()
-        return ParsedSongSelect(title, levels)
+        if (stack.isEmpty()) return ParsedSongSelect("", levels)
+        // bottom-up: [Vo. ..., composer, title] or [composer, title]
+        val vocal = stack.indexOfFirst { it.text.trim().startsWith("Vo", ignoreCase = true) }
+        val titleBox = when {
+            vocal >= 0 -> stack.getOrNull(vocal + 2) ?: stack.last()
+            else -> stack.getOrNull(1) ?: stack.last()
+        }
+        return ParsedSongSelect(titleBox.text.trim(), levels)
     }
 
     /** the difficulty shown on the live prepare screen */

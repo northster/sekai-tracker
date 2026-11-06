@@ -12,6 +12,7 @@ import io.github.northster.sekaitracker.SekaiApp
 import io.github.northster.sekaitracker.data.ChartStats
 import io.github.northster.sekaitracker.data.JacketStore
 import io.github.northster.sekaitracker.data.Judgments
+import io.github.northster.sekaitracker.data.KoreanTitles
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.RecordDb
 import io.github.northster.sekaitracker.data.ReviewMode
@@ -21,6 +22,7 @@ import io.github.northster.sekaitracker.data.Stats
 import io.github.northster.sekaitracker.ocr.OcrBox
 import io.github.northster.sekaitracker.ocr.ParsedResult
 import io.github.northster.sekaitracker.ocr.ParsedSongSelect
+import io.github.northster.sekaitracker.ocr.TextNorm
 import io.github.northster.sekaitracker.ocr.TitleMatcher
 import io.github.northster.sekaitracker.ocr.TitleRetry
 import io.github.northster.sekaitracker.ocr.ResultParser.TITLE_MISSING
@@ -51,11 +53,23 @@ object ResultPipeline {
         return title
     }
 
+    /**
+     * Saved titles that are this song: the same text, a correction the user made, or a near-identical OCR reading
+     * (the song select and result screens use different fonts, so a character can come out differently).
+     */
+    private fun sameSong(title: String): List<String> {
+        val aliases = RecordDb.aliases()
+        val canonical = aliases[TextNorm.titleKey(title)] ?: title
+        return RecordDb.titles().filter {
+            it == canonical || TextNorm.titleSimilarity(it, canonical) >= 0.85 || aliases[TextNorm.titleKey(it)] == canonical
+        }.ifEmpty { listOf(canonical) }
+    }
+
     /** song selected on the song select screen in the last minutes */
     fun selectedSong(now: Long = System.currentTimeMillis()): String? = lastSelected?.takeIf { now - it.second < SELECTION_VALID_MS }?.first
 
     /** best per difficulty of one song, easiest first */
-    fun charts(title: String): List<ChartStats> = RecordDb.forTitle(title).groupBy { it.difficulty }.values
+    fun charts(title: String): List<ChartStats> = sameSong(title).flatMap { RecordDb.forTitle(it) }.groupBy { it.difficulty }.values
         .mapNotNull { Stats.forChart(it, Settings.current.weights) }
         .sortedBy { it.difficulty?.ordinal ?: Int.MAX_VALUE }
 
@@ -123,6 +137,7 @@ object ResultPipeline {
         record = record.copy(id = id, pending = false)
         val comparison = Stats.compare(record, earlier, settings.weights)
         ResultOverlay.showResult(context, record, comparison)
+        KoreanTitles.ensure(record.title)
         return Outcome.Saved(record, comparison)
     }
 
@@ -134,6 +149,7 @@ object ResultPipeline {
         }
         val keep = Settings.current.keepImages
         if (!keep) record.imagePath?.let { File(it).delete() }
+        KoreanTitles.ensure(record.title)
         RecordDb.update(record.copy(pending = false, issues = "", imagePath = if (keep) record.imagePath else null))
     }
 

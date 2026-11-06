@@ -101,6 +101,24 @@ fun Jacket(title: String, size: Dp, modifier: Modifier = Modifier) {
     }
 }
 
+/** Korean titles by original title, kept fresh like other database reads */
+@Composable
+fun rememberKoTitles(): Map<String, String> = dbState(emptyMap()) { RecordDb.koTitles() }
+
+/** the Korean title when known, with the original title small under it */
+@Composable
+fun SongTitle(title: String, ko: String?, big: Boolean = false) {
+    Column {
+        Text(
+            ko ?: title.ifBlank { "(곡 이름 없음)" },
+            style = if (big) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleSmall,
+            fontWeight = if (big) FontWeight.Bold else FontWeight.SemiBold, maxLines = if (big) 3 else 1, overflow = TextOverflow.Ellipsis,
+        )
+        if (ko != null) Text(title, style = if (big) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 /** reads from the database off the main thread, again after every write */
 @Composable
 fun <T> dbState(initial: T, vararg keys: Any?, load: () -> T): T {

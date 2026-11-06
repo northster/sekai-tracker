@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import io.github.northster.sekaitracker.data.JacketStore
 import io.github.northster.sekaitracker.data.RecordDb
+import io.github.northster.sekaitracker.data.SecretStore
 import io.github.northster.sekaitracker.data.Settings
 
 class SekaiApp : Application() {
@@ -13,6 +14,7 @@ class SekaiApp : Application() {
         Settings.init(this)
         RecordDb.init(this)
         JacketStore.init(this)
+        SecretStore.init(this)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL_SERVICE, "화면 인식 실행 중", NotificationManager.IMPORTANCE_LOW).apply {
             setShowBadge(false)

@@ -153,6 +153,28 @@ class ResultParserTest {
         assertEquals(5, r.countBoxes.size)
     }
 
+    @Test fun jacketFrameFoundInThePicture() {
+        // screenshots/result.jpg: frame 226..363 x 21..158, picture inside it
+        val img = javax.imageio.ImageIO.read(java.io.File("../screenshots/result.jpg"))
+        val px = { x: Int, y: Int -> img.getRGB(x, y) }
+        val exact = load("result_rapidocr.tsv")
+        // phone OCR draws the badge text box bigger and further right: the estimate alone would cut the jacket off-center
+        val shifted = exact.map { if (it.text == "MASTER") OcrBox(it.text, it.left + 25, it.top - 4, it.right + 30, it.bottom + 4) else it }
+        for ((name, boxes) in listOf("exact" to exact, "shifted" to shifted, "no badge" to exact.filter { it.text != "MASTER" })) {
+            val r = ResultParser.jacketRegion(boxes, img.width, img.height, px)
+            assertTrue("$name ${r.toList()}", r[0] in 228..240 && r[1] in 23..35 && r[2] in 349..361 && r[3] in 144..156)
+        }
+    }
+
+    @Test fun songSelectIgnoresJacketText() {
+        // big lettering in the lower part of the jacket art (1385..1785 x 190..590) must not become the title
+        val boxes = load("song_select2_merged.tsv") + OcrBox("CASHIER", 1400, 500, 1760, 580) + OcrBox("S", 1790, 650, 1840, 720)
+        assertEquals("オブソミート", ResultParser.parseSongSelect(boxes, 1248)!!.title)
+        // without the "Vo." line the title is the line above the composer
+        val noVocal = load("song_select2_merged.tsv").filterNot { it.text.startsWith("Vo") }
+        assertEquals("オブソミート", ResultParser.parseSongSelect(noVocal, 1248)!!.title)
+    }
+
     @Test fun livePrepareScreen() {
         val boxes = load("live_prepare_rapidocr.tsv")
         assertEquals(ScreenKind.LIVE_PREPARE, ResultParser.classify(boxes))

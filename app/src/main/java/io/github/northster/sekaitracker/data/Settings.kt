@@ -46,9 +46,15 @@ data class AppSettings(
     val keepImages: Boolean = false,
     /** colors from the wallpaper (Android 12+) instead of the app's own teal theme */
     val dynamicColor: Boolean = false,
+    /** Gemini model used to find Korean song titles */
+    val geminiModel: String = DEFAULT_GEMINI_MODEL,
+    /** look up the Korean title of a song the first time it is saved (needs a Gemini API key) */
+    val autoKoTitle: Boolean = true,
 ) {
     companion object {
         /** Japanese, global, Korean and Taiwanese releases; editable in the settings */
+        // alias Google keeps pointing at its current Flash model
+        const val DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
         val DEFAULT_GAME_PACKAGES = listOf("com.sega.pjsekai", "com.sega.ColorfulStage.en", "com.pjsekai.kr", "com.hermes.mk.asia")
     }
 }
@@ -88,6 +94,8 @@ object Settings {
             ocrLanguage = enumOr(prefs.getString("ocr_language", null), d.ocrLanguage),
             keepImages = prefs.getBoolean("keep_images", d.keepImages),
             dynamicColor = prefs.getBoolean("dynamic_color", d.dynamicColor),
+            geminiModel = prefs.getString("gemini_model", null)?.takeIf { it.isNotBlank() } ?: d.geminiModel,
+            autoKoTitle = prefs.getBoolean("auto_ko_title", d.autoKoTitle),
         )
     }
 
@@ -104,6 +112,7 @@ object Settings {
             putBoolean("overlay", s.overlayEnabled); putString("overlay_corner", s.overlayCorner.name); putInt("overlay_seconds", s.overlaySeconds)
             putString("review_mode", s.reviewMode.name)
             putString("ocr_language", s.ocrLanguage.name); putBoolean("keep_images", s.keepImages); putBoolean("dynamic_color", s.dynamicColor)
+            putString("gemini_model", s.geminiModel); putBoolean("auto_ko_title", s.autoKoTitle)
         }
         state.value = s
     }

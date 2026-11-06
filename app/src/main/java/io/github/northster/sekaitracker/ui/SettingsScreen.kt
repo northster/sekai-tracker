@@ -20,6 +20,10 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import io.github.northster.sekaitracker.data.KoreanTitles
+import io.github.northster.sekaitracker.data.SecretStore
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -208,6 +212,41 @@ fun SettingsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
             }
             if (s.autoDetect) SwitchRow("화면 공유 방식: 확인할 때만 화면 가져오기", "확인 사이에는 화면 미러링을 멈춰서 배터리를 아껴요 (다시 시작하면 적용)", s.pauseMirroring) { v ->
                 Settings.update { it.copy(pauseMirroring = v) }
+            }
+        }
+
+        SettingsGroup("한글 곡명 (Gemini)") {
+            Text("Gemini가 구글 검색으로 한국 서버·나무위키·커뮤니티에서 가장 많이 쓰는 한글 곡명을 찾아 목록과 곡 화면에 보여줘요. " +
+                "본인 API 키가 필요하고, 곡 이름만 Google로 보내요. 키는 이 폰 안에 암호화해서 저장해요.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            var keyText by remember { mutableStateOf("") }
+            var hasKey by remember { mutableStateOf(SecretStore.hasGeminiKey) }
+            OutlinedTextField(
+                keyText, { keyText = it.trim() }, Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(12.dp),
+                label = { Text(if (hasKey) "API 키 저장됨 (바꾸려면 새 키 입력)" else "Gemini API 키") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(enabled = keyText.isNotBlank(), onClick = {
+                    SecretStore.geminiKey = keyText; keyText = ""; hasKey = SecretStore.hasGeminiKey
+                    Toast.makeText(context, "키를 저장했어요", Toast.LENGTH_SHORT).show()
+                }) { Text("키 저장") }
+                if (hasKey) OutlinedButton(onClick = { SecretStore.geminiKey = null; hasKey = false }) { Text("키 지우기") }
+                TextButton(onClick = {
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey"))) }
+                }) { Text("키 받기 (Google AI Studio)") }
+            }
+            var model by remember { mutableStateOf(s.geminiModel) }
+            OutlinedTextField(model, { model = it; Settings.update { st -> st.copy(geminiModel = it.trim().ifBlank { AppSettings.DEFAULT_GEMINI_MODEL }) } },
+                Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(12.dp), label = { Text("모델") },
+                supportingText = { Text("기본 ${AppSettings.DEFAULT_GEMINI_MODEL} (구글 검색을 쓸 수 있는 모델)") })
+            SwitchRow("새 곡은 자동으로 찾기", "처음 저장되는 곡의 한글 제목을 바로 찾아요", s.autoKoTitle) { v -> Settings.update { it.copy(autoKoTitle = v) } }
+            val batch by KoreanTitles.batch.collectAsState()
+            ActionRow(Icons.Default.Refresh, batch?.let { (done, total) -> "찾는 중… $done / $total" } ?: "한글 제목 없는 곡 모두 찾기",
+                "곡마다 몇 초씩 걸려요 (무료 사용량 한도를 넘지 않게)") {
+                if (!hasKey) Toast.makeText(context, "먼저 API 키를 저장해 주세요", Toast.LENGTH_SHORT).show()
+                else KoreanTitles.translateAll { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
             }
         }
 

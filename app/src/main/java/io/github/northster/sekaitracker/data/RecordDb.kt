@@ -21,7 +21,7 @@ object RecordDb {
 
     fun init(context: Context) { helper = Helper(context.applicationContext) }
 
-    private class Helper(context: Context) : SQLiteOpenHelper(context, "records.db", null, 1) {
+    private class Helper(context: Context) : SQLiteOpenHelper(context, "records.db", null, 2) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("""CREATE TABLE records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, played_at INTEGER NOT NULL, title TEXT NOT NULL, difficulty TEXT,
@@ -32,9 +32,16 @@ object RecordDb {
             db.execSQL("CREATE INDEX records_chart ON records(title, difficulty)")
             db.execSQL("CREATE TABLE songs (title TEXT PRIMARY KEY, levels TEXT, updated_at INTEGER)")
             db.execSQL("CREATE TABLE aliases (ocr_key TEXT PRIMARY KEY, title TEXT NOT NULL)")
+            createKoTitles(db)
         }
 
-        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            if (oldVersion < 2) createKoTitles(db)
+        }
+
+        /** Korean song titles found with Gemini (or typed by the user) */
+        private fun createKoTitles(db: SQLiteDatabase) =
+            db.execSQL("CREATE TABLE IF NOT EXISTS ko_titles (title TEXT PRIMARY KEY, ko TEXT NOT NULL, updated_at INTEGER)")
     }
 
     private fun notifyChanged() { changeCounter.value++ }
@@ -194,6 +201,22 @@ object RecordDb {
         }
         notifyChanged()
         return RestoreCount(added, skipped)
+    }
+
+    fun koTitle(title: String): String? =
+        helper.readableDatabase.rawQuery("SELECT ko FROM ko_titles WHERE title = ?", arrayOf(title)).use { if (it.moveToFirst()) it.getString(0) else null }
+
+    fun koTitles(): Map<String, String> = helper.readableDatabase.rawQuery("SELECT title, ko FROM ko_titles", null).use { c ->
+        buildMap { while (c.moveToNext()) put(c.getString(0), c.getString(1)) }
+    }
+
+    /** blank [ko] removes it */
+    fun setKoTitle(title: String, ko: String) {
+        if (ko.isBlank()) helper.writableDatabase.delete("ko_titles", "title = ?", arrayOf(title))
+        else helper.writableDatabase.insertWithOnConflict("ko_titles", null, ContentValues().apply {
+            put("title", title); put("ko", ko.trim()); put("updated_at", System.currentTimeMillis())
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+        notifyChanged()
     }
 
     /** rename a song in all records (fixing an OCR mistake after the fact) */

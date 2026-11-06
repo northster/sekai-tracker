@@ -18,25 +18,30 @@ import java.util.concurrent.ConcurrentHashMap
 object JacketStore {
     private const val SIZE = 192
     private lateinit var dir: File
+    private lateinit var oldDir: File
     private val cache = ConcurrentHashMap<String, Bitmap>()
     private val changeCounter = MutableStateFlow(0)
     /** bumps when a jacket is added or moved, so lists show it */
     val changes: StateFlow<Int> get() = changeCounter
 
-    fun init(context: Context) { dir = File(context.filesDir, "jackets").apply { mkdirs() } }
-
-    private fun file(title: String): File {
-        val hash = MessageDigest.getInstance("SHA-1").digest(TextNorm.titleKey(title).toByteArray())
-            .joinToString("") { "%02x".format(it) }
-        return File(dir, "$hash.png")
+    fun init(context: Context) {
+        // "jackets" holds crops from before the frame was searched in the picture (some off-center): they are shown until
+        // the song's next result screen gives a new one in "jackets2"
+        oldDir = File(context.filesDir, "jackets")
+        dir = File(context.filesDir, "jackets2").apply { mkdirs() }
     }
+
+    private fun name(title: String) = MessageDigest.getInstance("SHA-1").digest(TextNorm.titleKey(title).toByteArray())
+        .joinToString("") { "%02x".format(it) } + ".png"
+
+    private fun file(title: String) = File(dir, name(title))
 
     fun has(title: String) = title.isNotBlank() && file(title).exists()
 
     /** cuts the jacket out of a result screen picture, unless this song already has one */
     fun saveFromResult(title: String, picture: Bitmap, boxes: List<OcrBox>) {
         if (title.isBlank() || has(title)) return
-        val r = ResultParser.jacketRegion(boxes, picture.width, picture.height)
+        val r = ResultParser.jacketRegion(boxes, picture.width, picture.height) { x, y -> picture.getPixel(x, y) }
         val w = r[2] - r[0]
         val h = r[3] - r[1]
         if (w < 24 || h < 24) return
@@ -54,8 +59,7 @@ object JacketStore {
         if (title.isBlank()) return null
         val key = TextNorm.titleKey(title)
         cache[key]?.let { return it }
-        val f = file(title)
-        if (!f.exists()) return null
+        val f = file(title).takeIf { it.exists() } ?: File(oldDir, name(title)).takeIf { it.exists() } ?: return null
         return BitmapFactory.decodeFile(f.absolutePath)?.also { cache[key] = it }
     }
 

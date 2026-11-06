@@ -19,7 +19,13 @@ import io.github.northster.sekaitracker.ocr.ScreenKind
 import io.github.northster.sekaitracker.overlay.CaptureButton
 import io.github.northster.sekaitracker.overlay.ResultOverlay
 import io.github.northster.sekaitracker.ui.MainActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -75,13 +81,13 @@ object ScreenReader {
             return@withLock
         }
         try {
-            readFrame(context, frame, force)
+            readFrame(context, frame, force, grab)
         } finally {
             if (frame.recycleAfter) frame.bitmap.recycle()
         }
     }
 
-    private suspend fun readFrame(context: Context, frame: Frame, force: Boolean) {
+    private suspend fun readFrame(context: Context, frame: Frame, force: Boolean, grab: suspend () -> Frame?) {
         val bmp = frame.bitmap
         val content = contentRect(bmp, frame.width.coerceAtMost(bmp.width), frame.height.coerceAtMost(bmp.height))
         val thumb = thumbnail(bmp, content)
@@ -112,7 +118,7 @@ object ScreenReader {
                         is ResultPipeline.Outcome.Duplicate -> outcome.record
                     }
                     JacketStore.saveFromResult(record.title, crop, boxes)
-                    showDeltas(context, record, parsed, content, frame.scale)
+                    if (showDeltas(context, record, parsed, content, frame.scale)) watchForLeaving(thumb, grab)
                 }
                 ScreenKind.SONG_SELECT -> {
                     val title = ResultParser.parseSongSelect(boxes, crop.height)?.let { ResultPipeline.onSongSelect(it) }
@@ -145,9 +151,9 @@ object ScreenReader {
     }
 
     /** "-8" next to each judgment count: this play against the previous best play of the same song and difficulty */
-    private fun showDeltas(context: Context, record: PlayRecord, parsed: ParsedResult, content: Rect, scale: Float) {
-        if (record.title.isBlank()) return
-        val best = Stats.compare(record, RecordDb.forChart(record.title, record.difficulty), Settings.current.weights).previousBestPlay ?: return
+    private fun showDeltas(context: Context, record: PlayRecord, parsed: ParsedResult, content: Rect, scale: Float): Boolean {
+        if (record.title.isBlank() || parsed.countBoxes.isEmpty()) return false
+        val best = Stats.compare(record, RecordDb.forChart(record.title, record.difficulty), Settings.current.weights).previousBestPlay ?: return false
         val d = Stats.deltas(record.judgments, best.judgments)
         val marks = parsed.countBoxes.map { (label, box) ->
             val delta = when (label) { "PERFECT" -> d.perfect; "GREAT" -> d.great; "GOOD" -> d.good; "BAD" -> d.bad; else -> d.miss }
@@ -160,7 +166,41 @@ object ScreenReader {
             )
         }
         ResultOverlay.showDeltas(context, marks)
+        return true
     }
+
+    private val watchScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var leaveWatch: Job? = null
+
+    /**
+     * Keeps the "-8" marks while the result screen stays: every 1.5 s one picture is compared with the result screen's
+     * thumbnail (no text reading), and the marks go once the screen changed a lot, or after 5 minutes.
+     */
+    private fun watchForLeaving(resultThumb: IntArray, grab: suspend () -> Frame?) {
+        leaveWatch?.cancel()
+        leaveWatch = watchScope.launch {
+            val until = System.currentTimeMillis() + 5 * 60_000L
+            while (isActive && System.currentTimeMillis() < until) {
+                delay(1500)
+                if (!ResultOverlay.deltasShowing) return@launch
+                val left = lock.withLock {
+                    val f = runCatching { grab() }.getOrNull() ?: return@withLock false
+                    try {
+                        val bmp = f.bitmap
+                        val c = contentRect(bmp, f.width.coerceAtMost(bmp.width), f.height.coerceAtMost(bmp.height))
+                        FrameGate.diff(thumbnail(bmp, c), resultThumb) >= LEAVE_DIFF
+                    } finally {
+                        if (f.recycleAfter) f.bitmap.recycle()
+                    }
+                }
+                if (left) break
+            }
+            ResultOverlay.hideAsync()
+        }
+    }
+
+    /** mean gray difference that means another screen (the marks themselves change the picture far less) */
+    private const val LEAVE_DIFF = 12.0
 
     /** read the screen now with whatever is running: the accessibility service, the screen share, or open the app */
     fun requestNow(context: Context, delayMs: Long) {

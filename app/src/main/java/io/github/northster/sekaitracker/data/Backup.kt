@@ -19,6 +19,7 @@ object Backup {
         root.put("records", JSONArray().apply { RecordDb.all().forEach { put(recordJson(it)) } })
         root.put("songs", JSONObject().apply { RecordDb.songsRaw().forEach { (k, v) -> put(k, v) } })
         root.put("aliases", JSONObject().apply { RecordDb.aliases().forEach { (k, v) -> put(k, v) } })
+        root.put("koTitles", JSONObject().apply { RecordDb.koTitles().forEach { (k, v) -> put(k, v) } })
         root.put("settings", JSONObject().apply {
             Settings.raw().forEach { (k, v) ->
                 val type = when (v) { is Boolean -> "b"; is Int -> "i"; is Long -> "l"; is Float -> "f"; is String -> "s"; else -> null }
@@ -40,6 +41,7 @@ object Backup {
         val songs = root.optJSONObject("songs")?.let { o -> o.keys().asSequence().associateWith { o.getString(it) } }.orEmpty()
         val aliases = root.optJSONObject("aliases")?.let { o -> o.keys().asSequence().associateWith { o.getString(it) } }.orEmpty()
         val count = RecordDb.restore(records, songs, aliases)
+        root.optJSONObject("koTitles")?.let { o -> o.keys().forEach { RecordDb.setKoTitle(it, o.getString(it)) } }
 
         val settings = root.optJSONObject("settings")
         if (withSettings && settings != null) {

@@ -14,7 +14,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import io.github.northster.sekaitracker.data.ChartStats
 import io.github.northster.sekaitracker.data.Difficulty
 import io.github.northster.sekaitracker.data.JacketStore
+import io.github.northster.sekaitracker.data.KoreanTitles
 import io.github.northster.sekaitracker.data.PlayRecord
 import io.github.northster.sekaitracker.data.RecordDb
 import io.github.northster.sekaitracker.data.Settings
@@ -84,15 +89,19 @@ fun RecordsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(Sort.RECENT) }
     var selected by remember { mutableStateOf<Pair<String, Difficulty?>?>(null) }
-    val charts = remember(all, settings.weights, query, sort) {
+    val koTitles = rememberKoTitles()
+    val charts = remember(all, settings.weights, query, sort, koTitles) {
         Stats.allCharts(all, settings.weights)
-            .filter { query.isBlank() || TextNorm.titleKey(it.title).contains(TextNorm.titleKey(query)) }
+            .filter {
+                query.isBlank() || TextNorm.titleKey(it.title).contains(TextNorm.titleKey(query)) ||
+                    koTitles[it.title]?.let { ko -> TextNorm.titleKey(ko).contains(TextNorm.titleKey(query)) } == true
+            }
             .let { list ->
                 when (sort) {
                     Sort.RECENT -> list
                     Sort.ACCURACY -> list.sortedByDescending { it.bestAccuracy ?: 0.0 }
                     Sort.LEVEL -> list.sortedWith(compareByDescending<ChartStats> { it.level ?: 0 }.thenBy { it.title })
-                    Sort.TITLE -> list.sortedBy { it.title }
+                    Sort.TITLE -> list.sortedBy { koTitles[it.title] ?: it.title }
                 }
             }
     }
@@ -116,7 +125,7 @@ fun RecordsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
                 }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 4.dp)) {
                     items(charts, key = { "${it.title}|${it.difficulty}" }) { c ->
-                        ChartRow(c, Modifier.clickable {
+                        ChartRow(c, koTitles[c.title], Modifier.clickable {
                             if (wide) selected = c.title to c.difficulty else onOpen(Route.Chart(c.title, c.difficulty))
                         })
                     }
@@ -135,13 +144,13 @@ fun RecordsScreen(modifier: Modifier, onOpen: (Route) -> Unit) {
 }
 
 @Composable
-private fun ChartRow(c: ChartStats, modifier: Modifier) {
+private fun ChartRow(c: ChartStats, ko: String?, modifier: Modifier) {
     Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Jacket(c.title, 60.dp, Modifier.padding(end = 12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(c.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                SongTitle(c.title, ko)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     DifficultyChip(c.difficulty, c.level)
                     Text("${c.plays}회", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -165,12 +174,16 @@ fun ChartScreen(title: String, difficulty: Difficulty?, onBack: () -> Unit, onEd
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit, onRenamed: (String) -> Unit) {
     val settings by Settings.flow.collectAsState()
     val records = dbState(emptyList<PlayRecord>(), title, difficulty) { RecordDb.forChart(title, difficulty) }
     val stats = remember(records, settings.weights) { Stats.forChart(records, settings.weights) }
     var renaming by remember { mutableStateOf(false) }
+    var translating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val ko = rememberKoTitles()[title]
 
     LazyColumn(
         Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -179,7 +192,7 @@ fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit,
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Jacket(title, 104.dp, Modifier.padding(end = 16.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    SongTitle(title, ko, big = true)
                     DifficultyChip(difficulty, stats?.level)
                 }
                 IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, "곡 이름 고치기") }
@@ -188,10 +201,22 @@ fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit,
         item {
             // sdvx.in has a page per chart, but its song numbers can not be looked up without internet: search there instead
             val context = LocalContext.current
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 FilledTonalButton(onClick = { openChartSearch(context, title, difficulty) }) {
                     Icon(Icons.Default.Search, null, Modifier.size(18.dp)); Text("  채보 보기")
                 }
+                // Namu Wiki's "Go" opens the article with that name directly, or its search when there is none
+                FilledTonalButton(onClick = { openUrl(context, "https://namu.wiki/Go?q=" + Uri.encode(title)) }) {
+                    Icon(Icons.Default.Info, null, Modifier.size(18.dp)); Text("  나무위키")
+                }
+                OutlinedButton(enabled = !translating, onClick = {
+                    translating = true
+                    scope.launch {
+                        val message = runCatching { "한글 제목: " + KoreanTitles.fetchAndSave(title) }.getOrElse { it.message ?: "찾지 못했어요" }
+                        translating = false
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text(if (translating) "찾는 중…" else if (ko == null) "한글 제목 찾기" else "한글 제목 다시 찾기") }
                 OutlinedButton(onClick = {
                     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("곡 이름", title))
                     openUrl(context, "https://sdvx.in/prsk.php")
@@ -231,18 +256,21 @@ fun ChartContent(title: String, difficulty: Difficulty?, onEdit: (Long) -> Unit,
 
     if (renaming) {
         var text by remember { mutableStateOf(title) }
+        var koText by remember { mutableStateOf(ko.orEmpty()) }
         AlertDialog(
             onDismissRequest = { renaming = false },
             title = { Text("곡 이름 고치기") },
             text = {
                 Column {
                     Text("이 난이도의 모든 기록 이름이 바뀌고, 다음부터 같은 인식 결과는 자동으로 고쳐져요.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(text, { text = it }, singleLine = true)
+                    OutlinedTextField(text, { text = it }, singleLine = true, label = { Text("원래 곡 이름") })
+                    OutlinedTextField(koText, { koText = it }, singleLine = true, label = { Text("한글 제목 (비우면 지움)") })
                 }
             },
             confirmButton = {
                 TextButton(enabled = text.isNotBlank(), onClick = {
-                    RecordDb.renameChart(title, difficulty, text.trim()); JacketStore.copy(title, text.trim())
+                    if (text.trim() != title) { RecordDb.renameChart(title, difficulty, text.trim()); JacketStore.copy(title, text.trim()) }
+                    if (koText.trim() != ko.orEmpty()) RecordDb.setKoTitle(text.trim(), koText)
                     renaming = false; onRenamed(text.trim())
                 }) { Text("바꾸기") }
             },
